@@ -1,0 +1,8 @@
+string mode
+string requested_by
+string reason
+string trace_id
+---
+bool success
+string message
+string trace_id

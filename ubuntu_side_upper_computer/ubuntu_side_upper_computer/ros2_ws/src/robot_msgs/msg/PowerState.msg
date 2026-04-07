@@ -1,0 +1,7 @@
+float32 battery_voltage
+float32 battery_percent
+bool low_power_warn
+bool low_power_stop
+bool low_power_critical
+float32 freshness_sec
+string power_level

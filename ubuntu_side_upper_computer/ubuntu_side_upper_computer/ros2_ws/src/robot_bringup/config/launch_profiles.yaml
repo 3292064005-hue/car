@@ -1,0 +1,108 @@
+profiles:
+  minimal:
+    enable_voice: false
+    enable_vision: false
+    enable_monitor: false
+    enable_teleop: false
+    use_mock_robot: true
+    enable_debug_overlay: false
+    diagnostics_enabled: false
+    enable_web_bridge: false
+    log_level: warn
+    description: 最小链路，仅验证 ROS2->bridge->底盘控制主通路。
+    tags: [ci, smoke]
+  dev:
+    enable_voice: true
+    enable_vision: true
+    enable_monitor: true
+    enable_teleop: true
+    use_mock_robot: true
+    enable_debug_overlay: true
+    diagnostics_enabled: true
+    enable_web_bridge: true
+    bridge_host: 127.0.0.1
+    bridge_port: 9000
+    mjpeg_url: http://127.0.0.1:8080/stream
+    websocket_public_host: 127.0.0.1
+    websocket_listen_host: 0.0.0.0
+    websocket_port: 9001
+    websocket_path: /ws
+    log_level: debug
+    description: 开发联调配置，默认挂接本地 mock 机器人和 Web 控制台。
+    tags: [dev, mock]
+  demo:
+    enable_voice: true
+    enable_vision: true
+    enable_monitor: true
+    enable_teleop: false
+    use_mock_robot: false
+    enable_debug_overlay: false
+    diagnostics_enabled: true
+    enable_web_bridge: true
+    bridge_host: 192.168.4.1
+    bridge_port: 9000
+    mjpeg_url: http://192.168.4.1:81/stream
+    websocket_public_host: 192.168.4.1
+    websocket_listen_host: 0.0.0.0
+    websocket_port: 9001
+    websocket_path: /ws
+    log_level: info
+    description: 演示配置，连接真实 ESP32-S3 网关。
+    tags: [demo, hardware]
+  full:
+    enable_voice: true
+    enable_vision: true
+    enable_monitor: true
+    enable_teleop: true
+    use_mock_robot: false
+    enable_debug_overlay: true
+    diagnostics_enabled: true
+    enable_web_bridge: true
+    bridge_host: 192.168.4.1
+    bridge_port: 9000
+    mjpeg_url: http://192.168.4.1:81/stream
+    websocket_public_host: 192.168.4.1
+    websocket_listen_host: 0.0.0.0
+    websocket_port: 9001
+    websocket_path: /ws
+    log_level: info
+    description: 全功能运行配置。
+    tags: [ops, hardware]
+  hardware:
+    enable_voice: true
+    enable_vision: true
+    enable_monitor: true
+    enable_teleop: true
+    use_mock_robot: false
+    enable_debug_overlay: false
+    diagnostics_enabled: true
+    enable_web_bridge: true
+    bridge_host: 192.168.4.1
+    bridge_port: 9000
+    mjpeg_url: http://192.168.4.1:81/stream
+    websocket_public_host: 192.168.4.1
+    websocket_listen_host: 0.0.0.0
+    websocket_port: 9001
+    websocket_path: /ws
+    log_level: info
+    description: 真实机器人运行配置，侧重稳定性。
+    tags: [hardware, stable]
+  mock:
+    enable_voice: true
+    enable_vision: true
+    enable_monitor: true
+    enable_teleop: true
+    use_mock_robot: true
+    enable_debug_overlay: true
+    diagnostics_enabled: true
+    enable_web_bridge: true
+    bridge_host: 127.0.0.1
+    bridge_port: 9000
+    mjpeg_url: http://127.0.0.1:8080/stream
+    websocket_public_host: 127.0.0.1
+    websocket_listen_host: 0.0.0.0
+    websocket_port: 9001
+    websocket_path: /ws
+    log_level: debug
+    description: 本地仿真配置，自动启动 TCP mock robot。
+    tags: [mock, regression]

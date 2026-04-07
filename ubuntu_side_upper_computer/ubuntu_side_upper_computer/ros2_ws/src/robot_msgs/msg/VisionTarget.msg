@@ -1,0 +1,12 @@
+bool detected
+string target_type
+float32 center_x
+float32 center_y
+float32 offset_x
+float32 offset_y
+float32 normalized_x
+float32 normalized_y
+float32 area
+float32 confidence
+int32 stable_hits
+int32 lost_count

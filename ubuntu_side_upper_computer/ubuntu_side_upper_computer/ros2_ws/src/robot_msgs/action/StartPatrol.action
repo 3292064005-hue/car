@@ -1,0 +1,19 @@
+string requested_by
+string reason
+string trace_id
+---
+bool success
+string message
+string final_mode
+uint32 completed_points
+float32 progress
+string trace_id
+---
+string phase
+string step_name
+uint32 step_index
+uint32 completed_points
+uint32 total_points
+float32 progress
+string message
+string trace_id

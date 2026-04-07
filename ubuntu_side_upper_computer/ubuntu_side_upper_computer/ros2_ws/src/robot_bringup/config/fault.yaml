@@ -1,0 +1,7 @@
+robot_control:
+  ros__parameters:
+    low_power_linear_scale: 0.5
+    low_power_angular_scale: 0.7
+robot_bridge:
+  ros__parameters:
+    protocol_fault_threshold: 3

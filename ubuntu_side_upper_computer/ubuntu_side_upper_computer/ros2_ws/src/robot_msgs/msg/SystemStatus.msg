@@ -1,0 +1,11 @@
+bool wifi_ok
+bool camera_ok
+bool audio_ok
+bool uart_ok
+float32 battery_voltage
+float32 battery_percent
+bool low_power_warn
+bool low_power_stop
+bool transport_degraded
+bool stale_link
+string current_mode

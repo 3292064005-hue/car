@@ -1,0 +1,16 @@
+robot_vision:
+  ros__parameters:
+    stream_url: ''
+    poll_period: 0.1
+    snapshot_dir: /tmp/inspection_robot_snapshots
+    snapshot_on_qrcode: true
+    snapshot_on_color: true
+    min_detection_confidence: 0.55
+    color_profile_path: ''
+    stable_detection_hits: 2
+    stable_detection_misses: 3
+    enable_debug_overlay: false
+    capture_process_enabled: true
+    capture_ipc_queue_max: 1
+    capture_reconnect_backoff_sec: 0.5
+    capture_reopen_after_misses: 5

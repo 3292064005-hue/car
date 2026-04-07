@@ -1,0 +1,9 @@
+robot_bridge:
+  ros__parameters:
+    host: 127.0.0.1
+    port: 9000
+    heartbeat_period: 1.0
+    heartbeat_timeout_sec: 2.5
+    reconnect_period: 1.0
+    speak_min_interval: 0.1
+    protocol_fault_threshold: 3

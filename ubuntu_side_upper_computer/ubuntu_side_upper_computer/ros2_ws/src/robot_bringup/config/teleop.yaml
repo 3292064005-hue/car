@@ -1,0 +1,4 @@
+robot_keyboard_teleop:
+  ros__parameters:
+    linear_step: 0.20
+    angular_step: 0.80

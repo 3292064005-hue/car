@@ -1,0 +1,18 @@
+robot_decision:
+  ros__parameters:
+    boot_delay_sec: 1.0
+    patrol_step_duration: 2.5
+    track_lost_limit: 8
+    patrol_config_path: ''
+    strict_patrol_config: false
+    allow_default_patrol_fallback: true
+    auto_track_on_target: true
+    target_confidence_min: 0.55
+    safe_stop_on_wifi_loss: true
+    snapshot_on_qrcode: true
+    snapshot_on_target: true
+    snapshot_on_fault: true
+    require_ready_for_patrol: true
+    decision_intent_queue_max: 128
+    decision_intent_batch_max: 32
+    decision_intent_sync_timeout_sec: 0.25

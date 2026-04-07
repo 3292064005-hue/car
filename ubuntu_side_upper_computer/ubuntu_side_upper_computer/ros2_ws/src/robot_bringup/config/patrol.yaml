@@ -1,0 +1,38 @@
+patrol:
+  steps:
+    - name: forward_a
+      duration_sec: 2.2
+      linear: 0.15
+      angular: 0.0
+      speak_text: patrol_start
+      detect_type: color
+      snapshot_tag: forward_a
+      hold_after_sec: 0.2
+      auto_track: true
+    - name: scan_left
+      duration_sec: 1.4
+      linear: 0.0
+      angular: 0.55
+      speak_text: scan_left
+      detect_type: qrcode
+      snapshot_tag: scan_left
+      hold_after_sec: 0.2
+      auto_track: false
+    - name: forward_b
+      duration_sec: 2.2
+      linear: 0.12
+      angular: 0.0
+      speak_text: forward_next
+      detect_type: color
+      snapshot_tag: forward_b
+      hold_after_sec: 0.2
+      auto_track: true
+    - name: scan_right
+      duration_sec: 1.4
+      linear: 0.0
+      angular: -0.55
+      speak_text: scan_right
+      detect_type: qrcode
+      snapshot_tag: scan_right
+      hold_after_sec: 0.2
+      auto_track: false

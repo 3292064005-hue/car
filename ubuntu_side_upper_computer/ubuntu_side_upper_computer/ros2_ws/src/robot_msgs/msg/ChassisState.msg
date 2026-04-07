@@ -1,0 +1,11 @@
+float32 left_rpm
+float32 right_rpm
+float32 linear_velocity
+float32 angular_velocity
+bool estop
+bool comm_ok
+bool motor_enabled
+string control_source
+bool heartbeat_ok
+bool driver_fault
+string latched_fault_code

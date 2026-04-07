@@ -1,0 +1,20 @@
+string requested_by
+string reason
+string trace_id
+string target_type
+float32 min_confidence
+---
+bool success
+string message
+string final_mode
+uint32 lost_target_count
+string trace_id
+---
+bool target_detected
+string target_type
+float32 confidence
+float32 offset_x
+float32 offset_y
+uint32 lost_target_count
+string message
+string trace_id

@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_bridge</name>
+  <version>0.2.0</version>
+  <description>TCP JSON bridge between ROS2 and the ESP32 gateway.</description>
+  <maintainer email="maintainers@inspection-robot.invalid">Inspection Robot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>robot_msgs</exec_depend>
+  <exec_depend>robot_utils</exec_depend>
+  <exec_depend>robot_contracts</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

@@ -1,0 +1,10 @@
+export const WEB_PROTOCOL_VERSION = '4.1.0' as const;
+export const WEB_SCHEMA_VERSION = '2026-03-31' as const;
+export const TRANSPORT_PROTOCOL_VERSION = '1' as const;
+export const UART_PROTOCOL_VERSION = '1' as const;
+export const PROTOCOL_VERSION = WEB_PROTOCOL_VERSION;
+export const SCHEMA_VERSION = WEB_SCHEMA_VERSION;
+export const COMPATIBILITY_MODES = ["native-v4", "legacy-v3", "legacy-v2"] as const;
+export const BRIDGE_CAPABILITIES = ["command-ack", "session-replay", "layout-presets", "reports-export", "protocol-versioning", "odom-bridge", "battery-state", "transport-diagnostics", "fault-dictionary", "stale-flags", "compatibility-mode", "trace-correlation", "runtime-param-sync", "mode-capability-snapshot", "action-workflows", "qos-matrix", "web-bridge-components", "frontend-slices", "runtime-health-snapshot", "command-lifecycle-v2"] as const;
+export const COMMAND_TYPES = ["set_mode", "teleop_cmd", "stop_now", "estop", "resume_from_safe_stop", "start_patrol", "pause_patrol", "stop_patrol", "set_param", "apply_param_profile", "speak_fixed_text", "reset_fault", "save_snapshot"] as const;
+export type GeneratedCommandType = typeof COMMAND_TYPES[number];
