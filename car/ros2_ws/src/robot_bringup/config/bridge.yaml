@@ -1,0 +1,13 @@
+robot_bridge:
+  ros__parameters:
+    host: 127.0.0.1
+    port: 9000
+    heartbeat_period: 1.0
+    heartbeat_timeout_sec: 2.5
+    reconnect_period: 1.0
+    speak_min_interval: 0.1
+    protocol_fault_threshold: 3
+    default_session_role: observer
+    require_operator_token: true
+    operator_tokens: []
+    internal_command_socket_path: /tmp/inspection_robot/bridge_internal_command.sock

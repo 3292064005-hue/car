@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_description</name>
+  <version>0.2.0</version>
+  <description>Validated robot description contract and packaged URDF assets.</description>
+  <maintainer email="maintainers@inspection-robot.invalid">Inspection Robot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

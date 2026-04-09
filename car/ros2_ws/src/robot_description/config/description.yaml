@@ -1,0 +1,18 @@
+description:
+  robot_name: inspection_robot
+  frames:
+    map: map
+    odom: odom
+    base: base_link
+    camera: camera_link
+    imu: imu_link
+    battery: battery_link
+  dimensions:
+    wheel_radius_m: 0.065
+    wheel_separation_m: 0.320
+    body_length_m: 0.460
+    body_width_m: 0.310
+    body_height_m: 0.180
+    camera_height_m: 0.240
+  mass_kg: 11.0
+  battery_capacity_ah: 8.0

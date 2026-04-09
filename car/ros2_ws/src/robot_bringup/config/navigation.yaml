@@ -1,0 +1,18 @@
+robot_navigation:
+  ros__parameters:
+    odom_topic: /odom
+    goal_pose_topic: /robot/navigation/goal_pose
+    goal_id_topic: /robot/navigation/goal_id
+    route_name_topic: /robot/navigation/route_name
+    cancel_topic: /robot/navigation/cancel
+    output_cmd_topic: /robot/navigation/cmd_vel
+    path_topic: /robot/navigation/path
+    status_topic: /robot/navigation/status
+    route_plan_path: __ROUTE_PLAN_PATH__
+    goal_tolerance_m: 0.18
+    heading_slowdown_radius_m: 1.2
+    max_linear_m_s: 0.26
+    max_angular_rad_s: 1.10
+    angular_gain: 1.60
+    linear_gain: 0.80
+    control_rate_hz: 10.0

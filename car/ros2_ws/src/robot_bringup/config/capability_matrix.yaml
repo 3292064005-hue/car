@@ -1,0 +1,35 @@
+phases:
+  contracts:
+    requires_any: []
+  bridge:
+    requires_any: []
+  control:
+    requires_any: []
+  monitor:
+    requires_any: [enable_monitor]
+  platform:
+    requires_any: [enable_localization, enable_hardware_interface]
+  vision_voice:
+    requires_any: [enable_vision, enable_voice]
+  navigation:
+    requires_any: [enable_navigation]
+  lifecycle:
+    requires_any: []
+  decision:
+    requires_any: []
+  frontend:
+    requires_any: [enable_teleop, enable_web_bridge, enable_api_server]
+capabilities:
+  voice: enable_voice
+  vision: enable_vision
+  monitor: enable_monitor
+  teleop: enable_teleop
+  localization: enable_localization
+  navigation: enable_navigation
+  hardware_interface: enable_hardware_interface
+  api_server: enable_api_server
+  web_bridge: enable_web_bridge
+  mock_robot: use_mock_robot
+  debug_overlay: enable_debug_overlay
+  diagnostics: diagnostics_enabled
+  preflight_checks: preflight_checks_enabled

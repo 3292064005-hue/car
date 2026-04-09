@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>robot_api_server</name>
+  <version>0.2.0</version>
+  <description>HTTP and WebSocket API facade for frontend and tooling.</description>
+  <maintainer email="maintainers@inspection-robot.invalid">Inspection Robot Maintainers</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>python3-aiohttp</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

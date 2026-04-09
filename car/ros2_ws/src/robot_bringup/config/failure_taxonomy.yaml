@@ -1,0 +1,26 @@
+startup:
+  missing_node:
+    severity: fatal
+    operator_action: inspect_launch_and_process_logs
+  missing_ready_topic:
+    severity: fatal
+    operator_action: wait_for_startup_barrier_or_restart_surface
+  missing_http_probe:
+    severity: fatal
+    operator_action: inspect_api_server_or_surface_health_endpoint
+  preflight_failed:
+    severity: fatal
+    operator_action: resolve_reported_dependency_or_config_gap
+runtime:
+  bridge_runtime_degraded:
+    severity: warn
+    operator_action: inspect_runtime_health_reasons_and_transport_stats
+  operator_surface_unready:
+    severity: warn
+    operator_action: check_websocket_gateway_and_frontend_connectivity
+  api_surface_unready:
+    severity: warn
+    operator_action: inspect_api_server_runtime_health_and_operator_ready_reasons
+  runtime_param_timeout:
+    severity: warn
+    operator_action: inspect_consumer_status_and_retry_or_rollback

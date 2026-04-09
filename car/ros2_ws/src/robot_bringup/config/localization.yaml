@@ -1,0 +1,11 @@
+robot_localization:
+  ros__parameters:
+    odom_topic: /odom
+    odom_frame: odom
+    base_frame: base_link
+    summary_topic: /robot/localization/summary
+    publish_tf: true
+    max_dt_sec: 0.5
+    velocity_timeout_sec: 0.8
+    pose_covariance_diag: [0.02, 0.02, 0.02, 0.1, 0.1, 0.08]
+    twist_covariance_diag: [0.05, 0.05, 0.05, 0.1, 0.1, 0.12]

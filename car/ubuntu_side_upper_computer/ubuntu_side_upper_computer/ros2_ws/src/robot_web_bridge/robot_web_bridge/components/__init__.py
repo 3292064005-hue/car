@@ -1,1 +1,0 @@
-"""Web bridge internal components."""

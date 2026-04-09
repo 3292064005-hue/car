@@ -1,0 +1,158 @@
+{
+  "layout_version": 2,
+  "canonical_workspace_dir": ".",
+  "compatibility_workspace_dir": ".",
+  "workflow_path": ".github/workflows/ci.yml",
+  "outer_readme_path": "README.md",
+  "esp_root": "esp32s3_code/esp32_s3_gateway",
+  "stm_root": "stm32_code/stm32_f103_chassis",
+  "source_release": {
+    "excluded_dir_names": [
+      "__pycache__",
+      ".pytest_cache",
+      "node_modules",
+      "dist",
+      "install",
+      "build",
+      "log",
+      "tmp",
+      "release",
+      "delivery_artifacts",
+      "delivery_artifacts_v411",
+      ".check"
+    ],
+    "excluded_file_suffixes": [
+      ".pyc",
+      ".pyo"
+    ],
+    "excluded_file_names": [
+      ".DS_Store",
+      "deep_review_report_final_20260407.md",
+      "test_file_execution_report.md",
+      "test_file_execution_report.json"
+    ],
+    "excluded_part_suffixes": [
+      ".egg-info"
+    ]
+  },
+  "compatibility_shell": {
+    "required_paths": [],
+    "wrapper_pairs": [],
+    "content_mirror_dirs": [],
+    "content_mirror_files": [],
+    "content_sync_excluded_dir_names": [
+      "__pycache__",
+      ".pytest_cache",
+      "node_modules",
+      "dist",
+      "install",
+      "build",
+      "log",
+      "tmp",
+      "release",
+      "delivery_artifacts",
+      "delivery_artifacts_v411",
+      ".check"
+    ],
+    "content_sync_excluded_file_suffixes": [
+      ".pyc",
+      ".pyo"
+    ],
+    "content_sync_excluded_part_suffixes": [
+      ".egg-info"
+    ],
+    "root_content_mirror_dirs": [],
+    "root_content_mirror_files": [],
+    "generated_marker_paths": [],
+    "root_content_sync_excluded_dir_names": [
+      ".check"
+    ]
+  },
+  "embedded_mirror_pairs": [
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/src/app_main.c",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/app_main.c"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/src/gateway_runtime.c",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/gateway_runtime.c"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/src/gateway_runtime_config_loader.c",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/gateway_runtime_config_loader.c"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/include/gateway_runtime.h",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/gateway_runtime.h"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/include/gateway_runtime_config_loader.h",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/gateway_runtime_config_loader.h"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/include/gateway_types.h",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/gateway_types.h"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/chassis_runtime.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/chassis_runtime.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/control.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/control.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/diag.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/diag.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/host_harness_config.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/host_harness_config.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/main.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/main.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/power.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/power.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/include/chassis_runtime.h",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Inc/chassis_runtime.h"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/include/protocol.h",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Inc/protocol.h"
+      ]
+    }
+  ],
+  "layout_mode": "single_root_canonical"
+}

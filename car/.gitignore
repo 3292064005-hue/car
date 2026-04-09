@@ -1,0 +1,12 @@
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.egg-info/
+ros2_ws/install/
+ros2_ws/log/
+ros2_ws/src/**/build/
+ros2_ws/src/**/*.egg-info/
+robot_frontend/node_modules/
+robot_frontend/dist/
+.check/

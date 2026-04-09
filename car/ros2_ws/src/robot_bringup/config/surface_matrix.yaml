@@ -1,0 +1,16 @@
+surfaces:
+  backend:
+    required_nodes: [robot_decision, robot_control, robot_bridge]
+    ready_topics: []
+    requires_any: []
+  web_bridge:
+    required_nodes: [robot_web_bridge]
+    ready_topics: [/robot/web_bridge/ready]
+    requires_any: [enable_web_bridge]
+  frontend:
+    required_nodes: [robot_web_bridge]
+    ready_topics: [/robot/web_bridge/ready]
+    ready_http_templates:
+      - http://{api_probe_host}:{api_server_port}{api_server_api_prefix}/health
+    require_operator_ready: true
+    requires_any: [enable_web_bridge, enable_api_server]

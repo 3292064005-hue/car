@@ -1,0 +1,14 @@
+robot_api_server:
+  listen_host: 127.0.0.1
+  listen_port: 9100
+  ws_path: /ws
+  api_prefix: /api/v1
+  auth:
+    default_role: observer
+    require_operator_token: true
+    operator_tokens: []
+    upstream_bridge_session:
+      role: observer
+      session_id: robot-api-server-mirror
+      token: ''
+      internal_command_socket_path: /tmp/inspection_robot/bridge_internal_command.sock

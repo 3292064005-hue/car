@@ -1,0 +1,16 @@
+robot_lifecycle_manager:
+  ros__parameters:
+    autostart: true
+    managed_nodes:
+      - robot_control_lifecycle
+      - robot_navigation_lifecycle
+      - robot_decision_lifecycle
+    optional_managed_nodes:
+      - robot_navigation_lifecycle
+    bond_topic: /bond
+    bond_timeout: 4.0
+    status_topic: /robot/lifecycle_manager/status
+    ready_topic: /robot/lifecycle_manager/ready
+    poll_period_sec: 0.5
+    service_timeout_sec: 10.0
+    shutdown_on_bond_break: true

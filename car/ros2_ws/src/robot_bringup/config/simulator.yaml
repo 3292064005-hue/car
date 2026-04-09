@@ -1,0 +1,8 @@
+robot_simulator:
+  ros__parameters:
+    publish_rate_hz: 20.0
+    command_timeout_sec: 0.8
+    moving_drain_per_sec: 0.35
+    idle_drain_per_sec: 0.02
+    bridge_summary_topic: /robot/bridge/summary
+    transport_stats_topic: /robot/bridge/transport_stats

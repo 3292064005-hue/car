@@ -1,0 +1,74 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        run: npm --prefix robot_frontend ci
+      - name: Install Playwright browsers
+        run: npm --prefix robot_frontend exec playwright install --with-deps chromium
+      - name: Frontend E2E
+        run: npm --prefix robot_frontend run test:e2e:ci
+      - name: Unified release verification
+        run: ./scripts/run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke
+      - name: Mock system web bridge launch smoke
+        run: python3 scripts/run_live_ros_launch_smoke.py --launch-file mock_system.launch.py --expected-node /robot_web_bridge
+
+  integrated_frontend_bridge_smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        run: npm --prefix robot_frontend ci
+      - name: Integrated frontend + web bridge smoke
+        run: python3 scripts/run_integrated_frontend_bridge_smoke.py
+
+  target_environment_acceptance:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Target environment acceptance
+        run: ./scripts/run_target_environment_acceptance.sh --output /tmp/target_environment_acceptance.json
+
+  python_checks:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Python static checks
+        run: python3 scripts/validate_configs.py
+
+  frontend_metadata:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install frontend dependencies
+        run: npm --prefix robot_frontend ci
+      - name: Frontend metadata check
+        run: npm --prefix robot_frontend run typecheck

@@ -1,0 +1,8 @@
+robot_hardware_interface:
+  ros__parameters:
+    joint_state_topic: /joint_states
+    battery_state_topic: /battery_state
+    cmd_vel_observed_topic: /cmd_vel
+    summary_topic: /robot/hardware_interface/summary
+    left_wheel_joint_name: left_wheel_joint
+    right_wheel_joint_name: right_wheel_joint
