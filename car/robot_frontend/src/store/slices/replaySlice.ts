@@ -8,7 +8,7 @@ export function createReplaySlice(set: Parameters<RobotStoreSlice<RobotStore>>[0
     loadReplaySession: (session) =>
       set((state) => ({
         replay: { session, activeLogIndex: 0 },
-        logs: [makeLog('INFO', 'REPLAY', `已加载回放会话：${session.sourceName || '未知来源'}`), ...state.logs].slice(0, MAX_LOGS),
+        logs: [makeLog('INFO', 'REPLAY', `已加载离线会话回放：${session.sourceName || '未知来源'}`), ...state.logs].slice(0, MAX_LOGS),
       })),
     setReplayIndex: (index) =>
       set((state) => ({
@@ -17,7 +17,7 @@ export function createReplaySlice(set: Parameters<RobotStoreSlice<RobotStore>>[0
     clearReplaySession: () =>
       set((state) => ({
         replay: initialReplay,
-        logs: [makeLog('INFO', 'REPLAY', '已清空回放会话。'), ...state.logs].slice(0, MAX_LOGS),
+        logs: [makeLog('INFO', 'REPLAY', '已清空离线会话回放。'), ...state.logs].slice(0, MAX_LOGS),
       })),
   };
 }

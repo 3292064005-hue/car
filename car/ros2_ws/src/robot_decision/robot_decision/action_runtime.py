@@ -19,6 +19,22 @@ class ActionRuntime:
         self._condition = threading.Condition()
         self._shutdown_requested = False
 
+    def _patrol_total_points(self) -> int:
+        """Return the navigation-authoritative patrol point count.
+
+        Returns:
+            Total patrol points reported by the navigation runtime.
+
+        Raises:
+            None.
+
+        Boundary behavior:
+            The patrol action no longer falls back to ``PatrolManager`` for
+            runtime progress or completion semantics. Until navigation reports a
+            route, the total remains ``0``.
+        """
+        return max(0, int(self._node.context.navigation_total_goals or 0))
+
     def notify_state_change(self) -> None:
         """Wake pending action executors after any relevant state mutation.
 
@@ -103,7 +119,7 @@ class ActionRuntime:
             feedback.step_name = self._node.context.current_step_name
             feedback.step_index = int(self._node.context.navigation_completed_goals or self._node.context.patrol_index)
             feedback.completed_points = int(self._node.context.navigation_completed_goals or self._node.context.patrol_index)
-            feedback.total_points = int(self._node.context.navigation_total_goals or self._node.patrol_manager.total_steps())
+            feedback.total_points = self._patrol_total_points()
             feedback.progress = float(self._node.context.active_action_progress)
             feedback.message = self._node.context.active_action_message
             if hasattr(feedback, 'trace_id'):
@@ -113,7 +129,7 @@ class ActionRuntime:
                 result.success = True
                 result.message = 'patrol completed'
                 result.final_mode = self._node.current_mode
-                result.completed_points = int(self._node.context.navigation_total_goals or self._node.patrol_manager.total_steps())
+                result.completed_points = self._patrol_total_points()
                 result.progress = 1.0
                 goal_handle.succeed()
                 with self._node._action_lock:

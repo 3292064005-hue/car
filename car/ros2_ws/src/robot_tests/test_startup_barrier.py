@@ -102,7 +102,7 @@ def test_wait_for_ros_graph_requires_http_health_probe(monkeypatch) -> None:
     }
     monkeypatch.setattr(startup_barrier, '_cli_listing', lambda *args: set(listings.get(args, set())))
     monkeypatch.setattr(startup_barrier, '_ready_topic_probe', lambda topic_name, timeout_sec=startup_barrier.DEFAULT_READY_TOPIC_ECHO_TIMEOUT_SEC: (True, '{"ready":true}'))
-    monkeypatch.setattr(startup_barrier, '_http_probe', lambda url, ready_fields, timeout_sec=startup_barrier.DEFAULT_READY_TOPIC_ECHO_TIMEOUT_SEC: (ready_fields == ['ok', 'operatorReady'], '{"ok":true,"operatorReady":true}'))
+    monkeypatch.setattr(startup_barrier, '_http_probe', lambda url, ready_fields, timeout_sec=startup_barrier.DEFAULT_READY_TOPIC_ECHO_TIMEOUT_SEC: (ready_fields == ['ok', 'operatorSurfaceReady'], '{"ok":true,"operatorSurfaceReady":true}'))
     result = startup_barrier.wait_for_ros_graph(
         label='operator_phase',
         expected_nodes=['/robot_web_bridge'],
@@ -112,7 +112,7 @@ def test_wait_for_ros_graph_requires_http_health_probe(monkeypatch) -> None:
         expected_node_groups=[],
         expected_ready_topics=['/robot/web_bridge/ready'],
         expected_http_urls=['http://127.0.0.1:9100/api/v1/health'],
-        expected_http_ready_fields=['ok', 'operatorReady'],
+        expected_http_ready_fields=['ok', 'operatorSurfaceReady'],
         timeout_sec=0.1,
         poll_interval_sec=0.01,
     )
@@ -128,16 +128,16 @@ def test_http_probe_decodes_json_payload() -> None:
             return False
 
         def read(self) -> bytes:
-            return b'{"ok": true, "operatorReady": true}'
+            return b'{"ok": true, "operatorSurfaceReady": true}'
 
     monkeypatch_urlopen = startup_barrier.urllib.request.urlopen
     startup_barrier.urllib.request.urlopen = lambda url, timeout=0.0: _Response()
     try:
-        ready, detail = startup_barrier._http_probe('http://127.0.0.1:9100/api/v1/health', ready_fields=['ok', 'operatorReady'])
+        ready, detail = startup_barrier._http_probe('http://127.0.0.1:9100/api/v1/health', ready_fields=['ok', 'operatorSurfaceReady'])
     finally:
         startup_barrier.urllib.request.urlopen = monkeypatch_urlopen
     assert ready is True
-    assert 'operatorReady' in detail
+    assert 'operatorSurfaceReady' in detail
 
 
 def test_main_forwards_http_probe_arguments(monkeypatch) -> None:
@@ -154,8 +154,8 @@ def test_main_forwards_http_probe_arguments(monkeypatch) -> None:
         '--expected-ready-topic', '/robot/web_bridge/ready',
         '--expected-http-url', 'http://127.0.0.1:9100/api/v1/health',
         '--expected-http-ready-field', 'ok',
-        '--expected-http-ready-field', 'operatorReady',
+        '--expected-http-ready-field', 'operatorSurfaceReady',
     ])
     assert result == 0
     assert captured['expected_http_urls'] == ['http://127.0.0.1:9100/api/v1/health']
-    assert captured['expected_http_ready_fields'] == ['ok', 'operatorReady']
+    assert captured['expected_http_ready_fields'] == ['ok', 'operatorSurfaceReady']

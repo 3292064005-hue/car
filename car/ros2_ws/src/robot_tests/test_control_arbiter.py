@@ -13,7 +13,7 @@ def make_cmd(vx: float):
 
 def test_manual_selected_when_fresh():
     timed = TimedTwist(cmd=make_cmd(0.2), stamp=monotonic_time(), valid=True)
-    source, cmd = select_command(MODE_MANUAL, timed, TimedTwist(), TimedTwist(), TimedTwist(), 0.5)
+    source, cmd = select_command(MODE_MANUAL, timed, TimedTwist(), TimedTwist(), 0.5)
     assert source == 'manual'
     assert cmd.linear.x == 0.2
 
@@ -24,7 +24,6 @@ def test_patrol_prefers_navigation_when_fresh():
         MODE_PATROL,
         TimedTwist(),
         TimedTwist(cmd=make_cmd(0.1), stamp=now, valid=True),
-        TimedTwist(),
         TimedTwist(cmd=make_cmd(0.3), stamp=now, valid=True),
         0.5,
     )

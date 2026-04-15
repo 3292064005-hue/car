@@ -17,13 +17,16 @@ def _run(script: str) -> dict[str, object]:
 def test_state_transition_report_script_runs() -> None:
     payload = _run('render_state_transition_report.py')
     assert 'transition_rows' in payload
+    assert payload['authority'] == 'robot_utils.mode_catalog'
+    assert payload['allowed_matrix']['FAULT'] == ['IDLE']
     assert 'SAFE_STOP' in payload['modes']
 
 
 def test_parameter_schema_report_script_runs() -> None:
     payload = _run('render_parameter_schema_report.py')
-    assert payload['counts']['patrol_steps'] >= 1
+    assert payload['retiredSchemas']['patrol_step'] == 'removed_from_runtime_surface'
     assert 'dev' in payload['validated']['launch_profiles']
+    assert payload['counts']['launch_profiles'] >= 1
 
 
 def test_control_summary_report_script_runs() -> None:
@@ -91,21 +94,34 @@ def test_monitor_diagnostics_report_script_runs() -> None:
 
 def test_runtime_signal_matrix_report_script_runs() -> None:
     payload = _run('render_runtime_signal_matrix_report.py')
-    assert payload['report_scope'] == 'audit_inventory_only'
-    assert payload['runtime_consumer_closure_completed'] is False
+    assert payload['report_scope'] == 'profile_aware_runtime_contract'
+    assert payload['closureTracks']['declared']['complete'] is True
+    assert payload['closureTracks']['observed']['complete'] is True
+    assert payload['runtime_consumer_closure_completed'] is True
+    assert payload['mainline_runtime_gaps'] == []
+    assert payload['capabilitySnapshot']['web_bridge'] is True
     assert payload['observability_consumer_governance_completed'] is True
     assert '/robot/decision/summary' in payload['mainline_topics']
     assert '/robot/web_bridge/ready' in payload['mainline_topics']
     assert '/robot/monitor/diagnostics_json' in payload['observability_only_topics']
+    assert payload['topic_pruning_applied'] is True
+    assert payload['observability_surface_split_completed'] is True
+    assert payload['projection_surface_runtime_split_completed'] is True
+    row_by_topic = {row['topic']: row for row in payload['signalRows']}
+    assert row_by_topic['/robot/monitor/diagnostics_json']['surface_owner'] == 'observability_surface'
+    assert row_by_topic['/robot/decision/summary']['surface_owner'] == 'projection_surface'
 
 
 def test_bridge_runtime_topology_report_script_runs() -> None:
     payload = _run('render_bridge_runtime_topology_report.py')
     assert payload['report_scope'] == 'policy_artifact_only'
+    assert payload['closureTracks']['declared']['complete'] is True
+    assert payload['closureTracks']['observed']['complete'] is False
     assert payload['mainline_runtime'] == 'split_runtime'
     assert payload['runtime_launch_surface_changed'] is True
     assert payload['launchSurface']['operatorBarrierEnabled'] is True
     assert payload['policy']['legacy_runtime_accepts_new_features'] is False
+    assert payload['legacy_runtime_removed_from_launch'] is True
 
 
 def test_runtime_signal_matrix_report_honors_minimal_profile() -> None:
@@ -113,3 +129,18 @@ def test_runtime_signal_matrix_report_honors_minimal_profile() -> None:
     payload = json.loads(proc.stdout)
     assert payload['profile'] == 'minimal'
     assert '/robot/runtime/supervision' not in payload['mainline_topics']
+
+
+def test_legacy_compatibility_report_script_runs() -> None:
+    payload = _run('render_legacy_compatibility_report.py')
+    assert payload['retirementStage'] == 'audit_enforced'
+    assert payload['retirementMilestones'][1]['targetVersion'] == '4.1.0'
+    assert payload['runtimeAudit']['motionInputAliasHits'] >= 0
+    assert payload['canAdvanceMilestones']['remove_motion_input_tolerance'] in {True, False}
+
+
+def test_generated_mode_transition_artifact_matches_backend_catalog() -> None:
+    payload = json.loads((ROOT / 'robot_frontend' / 'src' / 'generated' / 'modeTransitions.json').read_text(encoding='utf-8'))
+    assert payload['authority'] == 'backend_mode_catalog'
+    assert payload['transitions']['IDLE'] == ['MANUAL', 'PATROL', 'SAFE_STOP', 'FAULT']
+    assert payload['transitions']['FAULT'] == ['IDLE']

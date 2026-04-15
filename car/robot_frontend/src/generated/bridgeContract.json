@@ -4,13 +4,11 @@
   "transportProtocolVersion": "1",
   "uartProtocolVersion": "1",
   "compatibilityModes": [
-    "native-v4",
-    "legacy-v3",
-    "legacy-v2"
+    "native-v4"
   ],
   "bridgeCapabilities": [
     "command-ack",
-    "session-replay",
+    "offline-session-replay",
     "layout-presets",
     "reports-export",
     "protocol-versioning",
@@ -30,6 +28,29 @@
     "runtime-health-snapshot",
     "command-lifecycle-v2"
   ],
+  "canonicalBridgeCapabilities": [
+    "command-ack",
+    "offline-session-replay",
+    "layout-presets",
+    "reports-export",
+    "protocol-versioning",
+    "odom-bridge",
+    "battery-state",
+    "transport-diagnostics",
+    "fault-dictionary",
+    "stale-flags",
+    "compatibility-mode",
+    "trace-correlation",
+    "runtime-param-sync",
+    "mode-capability-snapshot",
+    "action-workflows",
+    "qos-matrix",
+    "web-bridge-components",
+    "frontend-slices",
+    "runtime-health-snapshot",
+    "command-lifecycle-v2"
+  ],
+  "deprecatedBridgeCapabilityAliases": {},
   "commandTypes": [
     "set_mode",
     "teleop_cmd",
@@ -39,7 +60,6 @@
     "start_patrol",
     "pause_patrol",
     "stop_patrol",
-    "set_param",
     "apply_param_draft",
     "apply_param_profile",
     "speak_fixed_text",
@@ -60,5 +80,23 @@
     "system_log",
     "task_event",
     "command_ack"
+  ],
+  "runtimeParamFieldScopes": {
+    "maxLinearSpeed": "backend_authoritative",
+    "maxAngularSpeed": "backend_authoritative",
+    "teleopStep": "frontend_local",
+    "trackOffsetDeadband": "backend_authoritative",
+    "lowPowerThreshold": "backend_authoritative",
+    "reconnectTimeoutMs": "frontend_local"
+  },
+  "runtimeParamBackendAuthoritativeKeys": [
+    "maxLinearSpeed",
+    "maxAngularSpeed",
+    "trackOffsetDeadband",
+    "lowPowerThreshold"
+  ],
+  "runtimeParamFrontendLocalKeys": [
+    "teleopStep",
+    "reconnectTimeoutMs"
   ]
 }

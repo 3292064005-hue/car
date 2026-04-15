@@ -50,6 +50,7 @@ class MonitorNode(Node):
         self.declare_parameter('runtime_required_components', ['mode_state', 'system_status', 'chassis_state', 'bridge_summary', 'decision_summary', 'control_summary'])
         self.declare_parameter('runtime_supervision_history_limit', 32)
         self.declare_parameter('lifecycle_manager_status_topic', '/robot/lifecycle_manager/status')
+        self.declare_parameter('voice_ingress_health_topic', '/robot/voice/ingress_health')
         self.callback_groups = build_callback_groups()
         self.snapshot = StatusSnapshot()
         self.metrics = Metrics()
@@ -76,6 +77,7 @@ class MonitorNode(Node):
         self._component_last_seen: dict[str, float] = {}
         self._lifecycle_manager_status: dict[str, Any] | None = None
         self._lifecycle_manager_status_at: float = 0.0
+        self._voice_ingress_health: dict[str, Any] | None = None
         self._component_topics = {
             'mode_state': '/robot/mode_state',
             'system_status': '/robot/system_status',
@@ -87,6 +89,7 @@ class MonitorNode(Node):
             'navigation_status': '/robot/navigation/status',
             'runtime_params': RUNTIME_PARAM_TOPIC,
             'voice_cmd': '/robot/voice/cmd',
+            'voice_ingress_health': str(self.get_parameter('voice_ingress_health_topic').value),
             'fault': '/robot/fault',
             'event': '/robot/events',
             'lifecycle_manager_status': str(self.get_parameter('lifecycle_manager_status_topic').value),
@@ -107,6 +110,7 @@ class MonitorNode(Node):
         call_with_callback_group(self.create_subscription, ChassisState, '/robot/chassis_state', self.on_chassis, qos_for('telemetry'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, PowerState, '/robot/power_state', self.on_power, qos_for('telemetry'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, VoiceCommand, '/robot/voice/cmd', self.on_voice, qos_for('perception'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, str(self.get_parameter('voice_ingress_health_topic').value), self.on_voice_ingress_health, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, Fault, '/robot/fault', self.on_fault, qos_for('fault_event'), callback_group=self.callback_groups.control)
         call_with_callback_group(self.create_subscription, EventLog, '/robot/events', self.on_event, qos_for('event_log'), callback_group=self.callback_groups.io)
         call_with_callback_group(self.create_subscription, String, '/robot/vision/qrcode', self.on_qrcode, qos_for('event_log'), callback_group=self.callback_groups.io)
@@ -376,6 +380,32 @@ class MonitorNode(Node):
         self.snapshot.last_voice_cmd = msg.command
         self.metrics.voice_cmd_seen += 1
 
+    def on_voice_ingress_health(self, msg: String) -> None:
+        """Consume one ASR ingress health snapshot for supervision/reporting.
+
+        Args:
+            msg: JSON-encoded voice ingress health payload.
+
+        Returns:
+            None.
+
+        Raises:
+            None. Malformed payloads are reported and ignored.
+        """
+        try:
+            payload = json.loads(msg.data or '{}')
+        except Exception as exc:
+            publish_policy_outcome(self, outcome=classify_exception('monitor.voice_ingress_health', exc, code='MONITOR_VOICE_INGRESS_HEALTH_INVALID', operator_message='voice ingress health parse failed'), event_pub=self.event_pub)
+            return
+        if not isinstance(payload, dict):
+            publish_policy_outcome(self, outcome=classify_exception('monitor.voice_ingress_health', TypeError('payload must be an object'), code='MONITOR_VOICE_INGRESS_HEALTH_INVALID', operator_message='voice ingress health parse failed'), event_pub=self.event_pub)
+            return
+        self._voice_ingress_health = payload
+        self.snapshot.voice_ingress_state = str(payload.get('state', 'unknown') or 'unknown')
+        self.snapshot.voice_ingress_reason = str(payload.get('reason', 'unknown') or 'unknown')
+        self.snapshot.voice_ingress_source = str(payload.get('lastSourceId', payload.get('expectedSourceId', '')) or '')
+        self._mark_component_seen('voice_ingress_health')
+
     def on_fault(self, msg: Fault) -> None:
         self._mark_component_seen('fault')
         self.snapshot.last_fault = f'{msg.code}:{msg.level}'
@@ -563,11 +593,13 @@ class MonitorNode(Node):
         elif state != 'ready':
             reasons = [reason for reason in reasons if reason != 'all_core_components_fresh']
 
+        voice_ingress_health = getattr(self, '_voice_ingress_health', None)
         payload = {
             'state': state,
             'reasons': list(dict.fromkeys(reasons)),
             'components': components,
-            'startupBarrierReady': bool(self._runtime_startup_ready),
+            'voiceIngressHealth': voice_ingress_health if isinstance(voice_ingress_health, dict) else None,
+            'startupBarrierReady': bool(getattr(self, '_runtime_startup_ready', False)),
             'startupBarrierPending': [name for name in required if components.get(name, {}).get('status') == 'missing'],
             'readiness': readiness,
             'readinessReason': readiness_reason,

@@ -27,7 +27,7 @@ export function ModePanel() {
           const rule = canTransitionMode({ currentMode: motion.mode, targetMode: mode, fault, connection, power });
           const blockedByReadonly = ui.demoReadonly && !active;
           const commandState = commandButtonState('set_mode', { mode, source: 'frontend' });
-          const disabled = active || blockedByReadonly;
+          const disabled = active || blockedByReadonly || commandState.disabled || !rule.allowed;
           const title = blockedByReadonly
             ? '当前启用了本地演示锁，模式切换按钮已在浏览器侧禁用。'
             : (commandState.reason || rule.reason || '');

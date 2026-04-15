@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 from typing import Any
+from pathlib import Path
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -13,7 +13,7 @@ from robot_description.description_model import load_description_model
 from robot_msgs.msg import ChassisState, PowerState
 from robot_utils.helpers import monotonic_time, safe_json_dumps
 from robot_utils.qos_profiles import qos_for
-from .hardware_adapter import WheelDriveEstimator
+from .hardware_adapter import WheelDriveEstimator, build_hardware_boundary_snapshot
 
 
 class RobotHardwareInterfaceNode(Node):
@@ -30,8 +30,18 @@ class RobotHardwareInterfaceNode(Node):
         self.declare_parameter('cmd_vel_observed_topic', '/cmd_vel')
         self.declare_parameter('summary_topic', '/robot/hardware_interface/summary')
         self.declare_parameter('description_path', '')
+        self.declare_parameter('hardware_interface_config_path', '')
         self.declare_parameter('left_wheel_joint_name', 'left_wheel_joint')
         self.declare_parameter('right_wheel_joint_name', 'right_wheel_joint')
+        self.declare_parameter('compatibility_surface_role', 'ros_projection_only')
+        self.declare_parameter('board_validation_in_repo', False)
+        self.declare_parameter('board_execution_confirmed', False)
+        self.declare_parameter('feedback_source', 'external_transport_or_mock')
+        self.declare_parameter('actuation_boundary', 'outside_ros_projection_node')
+        self.declare_parameter('transport_authority', 'external_board_controller')
+        self.declare_parameter('verification_stage', 'host_harness_only')
+        self.declare_parameter('command_transport', 'tcp_json_bridge')
+        self.declare_parameter('verification_artifact_path', '')
 
         self._last_chassis_at = monotonic_time()
         self._description_loaded = False
@@ -41,6 +51,24 @@ class RobotHardwareInterfaceNode(Node):
             model = load_description_model(description_path)
             self._description_loaded = True
             self._description_robot_name = model.robot_name
+
+        verification_artifact_path = str(self.get_parameter('verification_artifact_path').value or '').strip()
+        config_path = str(self.get_parameter('hardware_interface_config_path').value or '').strip()
+        if verification_artifact_path and config_path and not Path(verification_artifact_path).is_absolute():
+            verification_artifact_path = str((Path(config_path).resolve().parent / verification_artifact_path).resolve())
+
+        self._boundary_snapshot = build_hardware_boundary_snapshot(
+            compatibility_surface_role=str(self.get_parameter('compatibility_surface_role').value),
+            board_validation_in_repo=bool(self.get_parameter('board_validation_in_repo').value),
+            board_execution_confirmed=bool(self.get_parameter('board_execution_confirmed').value),
+            feedback_source=str(self.get_parameter('feedback_source').value),
+            actuation_boundary=str(self.get_parameter('actuation_boundary').value),
+            transport_authority=str(self.get_parameter('transport_authority').value),
+            verification_stage=str(self.get_parameter('verification_stage').value),
+            command_transport=str(self.get_parameter('command_transport').value),
+            verification_artifact_path=verification_artifact_path,
+            verification_reference_config_path=(Path(config_path).resolve().parent if config_path else None),
+        )
 
         self._last_power: PowerState | None = None
         self._wheel_estimator = WheelDriveEstimator()
@@ -130,12 +158,18 @@ class RobotHardwareInterfaceNode(Node):
         Raises:
             None.
         """
+        boundary = self._boundary_snapshot.to_dict()
         payload: dict[str, Any] = {
             'jointStateAvailable': self._latest_joint_state is not None,
             'batteryStateAvailable': self._last_power is not None,
             'cmdObserved': self._latest_cmd is not None,
             'descriptionLoaded': self._description_loaded,
             'robotName': self._description_robot_name,
+            'boundary': boundary,
+            'transportAuthority': boundary['transportAuthority'],
+            'verificationStage': boundary['verificationStage'],
+            'executionEvidenceClass': boundary['executionEvidenceClass'],
+            'claimScope': boundary['claimScope'],
         }
         if self._last_power is not None:
             payload['batteryPercent'] = float(self._last_power.battery_percent)

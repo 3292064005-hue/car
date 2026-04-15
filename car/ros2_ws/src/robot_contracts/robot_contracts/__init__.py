@@ -1,3 +1,5 @@
+from .lane_registry import bridge_runtime_lane_entry, get_lane_entry, hardware_lane_entry, lane_registry_payload, navigation_lane_entry
+from .signal_ownership import governance_signal_registry_payload, validate_signal_registry
 from .bridge_contract import (
     BRIDGE_CAPABILITIES,
     COMMAND_ACK_STATUSES,
@@ -43,4 +45,11 @@ __all__ = [
     'BridgeEndpoint',
     'LaunchRuntime',
     'resolve_runtime',
+    'bridge_runtime_lane_entry',
+    'get_lane_entry',
+    'hardware_lane_entry',
+    'lane_registry_payload',
+    'navigation_lane_entry',
+    'governance_signal_registry_payload',
+    'validate_signal_registry',
 ]

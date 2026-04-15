@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""Create one clean source-release zip from the current repository root.
-
-The packaging script intentionally targets the repository root of the current
-checkout instead of a nested canonical workspace path. This keeps the release
-workflow usable for both split-snapshot repositories and canonical-only source
-releases.
-"""
+"""Create one clean source-release zip from the current repository root."""
 
 import argparse
 import json
+import shutil
 import subprocess
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -28,24 +23,11 @@ EXCLUDED_DIR_NAMES = set(str(item) for item in _SOURCE_RELEASE.get('excluded_dir
 EXCLUDED_FILE_SUFFIXES = set(str(item) for item in _SOURCE_RELEASE.get('excluded_file_suffixes', []))
 EXCLUDED_FILE_NAMES = set(str(item) for item in _SOURCE_RELEASE.get('excluded_file_names', []))
 EXCLUDED_PART_SUFFIXES = tuple(str(item) for item in _SOURCE_RELEASE.get('excluded_part_suffixes', []))
+TRANSIENT_DIR_NAMES = {'__pycache__', '.pytest_cache'}
+TRANSIENT_FILE_SUFFIXES = {'.pyc', '.pyo'}
 
 
 def should_include(path: Path) -> bool:
-    """Return whether one repository-relative path belongs in the release zip.
-
-    Args:
-        path: Repository-relative candidate path.
-
-    Returns:
-        ``True`` when the path is part of the clean source release.
-
-    Raises:
-        None.
-
-    Boundary behavior:
-        Any parent directory segment listed in the manifest exclusions is treated
-        as excluded, not only the leaf filename.
-    """
     normalized_parts = tuple(str(part) for part in path.parts)
     if any(part in EXCLUDED_DIR_NAMES for part in normalized_parts):
         return False
@@ -58,8 +40,41 @@ def should_include(path: Path) -> bool:
     return True
 
 
+def scan_source_tree_artifacts(root: Path) -> list[str]:
+    """Return excluded artifact paths that leaked into the canonical source tree."""
+    offenders: set[str] = set()
+    for path in root.rglob('*'):
+        rel = path.relative_to(root)
+        if should_include(rel):
+            continue
+        offenders.add(str(rel))
+    return sorted(offenders)
+
+
+def prune_transient_source_artifacts(root: Path) -> list[str]:
+    """Delete interpreter/test cache artifacts without masking real build pollution.
+
+    Only transient Python cache directories/files are pruned. Build/install/dist
+    outputs remain blocking so the canonical-source gate still protects against
+    real packaging pollution.
+    """
+    removed: list[str] = []
+    for path in sorted(root.rglob('*'), key=lambda item: (len(item.parts), str(item)), reverse=True):
+        rel = path.relative_to(root)
+        if path.is_dir() and path.name in TRANSIENT_DIR_NAMES:
+            shutil.rmtree(path, ignore_errors=True)
+            removed.append(str(rel))
+            continue
+        if path.is_file() and path.suffix in TRANSIENT_FILE_SUFFIXES:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            removed.append(str(rel))
+    return sorted(set(removed))
+
+
 def collect_files(root: Path) -> list[Path]:
-    """Collect all includable files under one source root."""
     files: list[Path] = []
     for path in sorted(root.rglob('*')):
         if not path.is_file():
@@ -71,11 +86,6 @@ def collect_files(root: Path) -> list[Path]:
 
 
 def _archive_mode(path: Path) -> int:
-    """Return one UNIX mode for the archived file.
-
-    Shell entrypoints and shebang scripts are emitted as executable so the
-    extracted source release remains directly runnable.
-    """
     stat_mode = path.stat().st_mode if path.exists() else 0o100644
     mode = stat_mode & 0o777
     first_line = path.read_text(encoding='utf-8', errors='ignore').splitlines()[:1]
@@ -97,7 +107,6 @@ def _write_archive_member(archive: ZipFile, root: Path, path: Path) -> None:
 
 
 def validate_archive_clean(output: Path) -> list[str]:
-    """Return leaked excluded paths found inside one generated archive."""
     offenders: list[str] = []
     with ZipFile(output, 'r') as archive:
         for name in archive.namelist():
@@ -109,7 +118,6 @@ def validate_archive_clean(output: Path) -> list[str]:
 
 
 def git_worktree_status(root: Path) -> dict[str, object]:
-    """Inspect git status for the requested root when git metadata is available."""
     try:
         result = subprocess.run(['git', 'status', '--short'], cwd=root, check=False, text=True, capture_output=True)
     except OSError as exc:
@@ -125,6 +133,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--output', default=str(DEFAULT_OUTPUT))
     parser.add_argument('--manifest', default=str(DEFAULT_MANIFEST))
     parser.add_argument('--require-clean-worktree', action='store_true', help='fail when git status is dirty')
+    parser.add_argument('--allow-source-tree-artifacts', action='store_true', help='do not fail when excluded build/dist artifacts are still present in the source tree')
+    parser.add_argument('--clean-transient-source-artifacts', action='store_true', help='prune Python/test cache artifacts before strict packaging checks')
     return parser.parse_args()
 
 
@@ -139,6 +149,17 @@ def main() -> int:
     if args.require_clean_worktree and git_status.get('available') and git_status.get('clean') is False:
         changed = git_status.get('changed_paths') or []
         raise SystemExit(f'git worktree is dirty; refusing to package source release: {changed[:20]}')
+
+    cleaned_transient_artifacts: list[str] = []
+    if args.clean_transient_source_artifacts:
+        cleaned_transient_artifacts = prune_transient_source_artifacts(ROOT)
+
+    source_tree_artifacts = scan_source_tree_artifacts(ROOT)
+    if source_tree_artifacts and not args.allow_source_tree_artifacts:
+        raise SystemExit(
+            'canonical source tree contains excluded build/dist artifacts; clean the tree or pass '
+            f'--allow-source-tree-artifacts: {source_tree_artifacts[:20]}'
+        )
 
     files = collect_files(ROOT)
     with ZipFile(output, 'w', compression=ZIP_DEFLATED) as archive:
@@ -159,6 +180,9 @@ def main() -> int:
         'excluded_file_suffixes': sorted(EXCLUDED_FILE_SUFFIXES),
         'excluded_part_suffixes': list(EXCLUDED_PART_SUFFIXES),
         'archive_clean': True,
+        'source_tree_clean': not source_tree_artifacts,
+        'source_tree_artifact_paths': source_tree_artifacts,
+        'cleaned_transient_source_artifacts': cleaned_transient_artifacts,
         'git_worktree': git_status,
         'package_layout': str(_MANIFEST.get('layout_mode', 'single_root_canonical')),
         'sample_files': [str(path.relative_to(ROOT)) for path in files[:40]],

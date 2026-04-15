@@ -58,11 +58,7 @@ class DecisionNode(Node):
     def __init__(self, node_name: str = 'robot_decision') -> None:
         super().__init__(node_name)
         self.declare_parameter('boot_delay_sec', 1.0)
-        self.declare_parameter('patrol_step_duration', 2.5)
         self.declare_parameter('track_lost_limit', 8)
-        self.declare_parameter('patrol_config_path', '')
-        self.declare_parameter('strict_patrol_config', False)
-        self.declare_parameter('allow_default_patrol_fallback', True)
         self.declare_parameter('auto_track_on_target', True)
         self.declare_parameter('target_confidence_min', 0.55)
         self.declare_parameter('safe_stop_on_wifi_loss', True)
@@ -93,7 +89,6 @@ class DecisionNode(Node):
 
         self.mode_pub = self.create_publisher(ModeState, '/robot/mode_state', qos_for('mode_state'))
         self.event_pub = self.create_publisher(EventLog, '/robot/events', qos_for('event_log'))
-        self.patrol_pub = self.create_publisher(Twist, '/robot/patrol/cmd_vel', qos_for('control_cmd'))
         self.track_pub = self.create_publisher(Twist, '/robot/track/cmd_vel', qos_for('control_cmd'))
         self.speak_pub = self.create_publisher(SpeakRequest, '/robot/speak_req', qos_for('control_cmd'))
         self.snapshot_pub = self.create_publisher(String, '/robot/vision/snapshot_request', qos_for('control_cmd'))
@@ -110,7 +105,6 @@ class DecisionNode(Node):
         self.side_effects = DecisionSideEffects(node=self)
         self.state_controller = DecisionStateController(node=self)
         self.track_manager = TrackManager(min_confidence=float(self.get_parameter('target_confidence_min').value))
-        self.patrol_manager = self.mission_orchestrator.build_patrol_manager()
         self.app_service = DecisionAppService(
             node=self,
             ingress=DecisionIngress(),
@@ -319,8 +313,7 @@ class DecisionNode(Node):
             self.context.navigation_progress = 0.0
             self.context.navigation_reason = reason
             self.context.navigation_cmd_source = 'navigation'
-            now = self.get_clock().now().nanoseconds / 1e9
-            self.patrol_manager.reset(now)
+            self.context.navigation_total_goals = 0
         elif new_mode == MODE_TRACK:
             self.context.active_action_name = 'track_target'
             self.context.active_action_phase = 'accepted'

@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Iterable
 
-BRIDGE_CAPABILITIES = (
+_CANONICAL_BRIDGE_CAPABILITIES = (
     'command-ack',
-    'session-replay',
+    'offline-session-replay',
     'layout-presets',
     'reports-export',
     'protocol-versioning',
@@ -24,6 +24,10 @@ BRIDGE_CAPABILITIES = (
     'runtime-health-snapshot',
     'command-lifecycle-v2',
 )
+
+DEPRECATED_BRIDGE_CAPABILITY_ALIASES: dict[str, str] = {}
+
+BRIDGE_CAPABILITIES = _CANONICAL_BRIDGE_CAPABILITIES
 
 COMMAND_LIFECYCLE_STATUSES = (
     'queued',
@@ -57,7 +61,6 @@ COMMAND_TYPES = (
     'start_patrol',
     'pause_patrol',
     'stop_patrol',
-    'set_param',
     'apply_param_draft',
     'apply_param_profile',
     'speak_fixed_text',
@@ -107,17 +110,7 @@ TRANSPORT_SUMMARY_KEYS = (
 
 
 def compatibility_ack_status(lifecycle_status: str) -> str:
-    """Map one precise lifecycle status onto the legacy ACK contract.
-
-    Args:
-        lifecycle_status: Fine-grained lifecycle state.
-
-    Returns:
-        Legacy-compatible ``command_ack.status`` value.
-
-    Raises:
-        ValueError: If ``lifecycle_status`` is unsupported.
-    """
+    """Map one precise lifecycle status onto the legacy ACK contract."""
     normalized = str(lifecycle_status or '').strip()
     if normalized not in COMPATIBILITY_ACK_STATUS_BY_LIFECYCLE:
         raise ValueError(f'unsupported lifecycle status: {lifecycle_status!r}')
@@ -125,22 +118,28 @@ def compatibility_ack_status(lifecycle_status: str) -> str:
 
 
 
-def supported_capabilities(extra: Iterable[str] | None = None) -> list[str]:
-    """Return the merged supported capability list.
+def canonical_bridge_capabilities() -> tuple[str, ...]:
+    """Return the canonical capability identifiers exposed by the bridge contract."""
+    return _CANONICAL_BRIDGE_CAPABILITIES
 
-    Args:
-        extra: Optional additional capability names.
 
-    Returns:
-        Ordered list of unique capability identifiers.
 
-    Raises:
-        None.
-    """
-    merged = list(BRIDGE_CAPABILITIES)
+def capability_alias_map() -> dict[str, str]:
+    """Return deprecated capability aliases keyed by old identifier."""
+    return dict(DEPRECATED_BRIDGE_CAPABILITY_ALIASES)
+
+
+
+def supported_capabilities(extra: Iterable[str] | None = None, *, include_deprecated_aliases: bool = True) -> list[str]:
+    """Return the merged supported capability list."""
+    merged = list(_CANONICAL_BRIDGE_CAPABILITIES)
     if extra:
         for capability in extra:
             item = str(capability).strip()
             if item and item not in merged:
                 merged.append(item)
+    if include_deprecated_aliases:
+        for alias in DEPRECATED_BRIDGE_CAPABILITY_ALIASES:
+            if alias not in merged:
+                merged.append(alias)
     return merged

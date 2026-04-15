@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib
 import sys
 import types
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -59,6 +60,22 @@ class _FakeAction:
 class _FakeContext:
     def __init__(self, values: dict[str, str]) -> None:
         self.values = values
+
+
+_STUBBED_MODULE_NAMES = (
+    'launch',
+    'launch.actions',
+    'launch.conditions',
+    'launch.event_handlers',
+    'launch.events',
+    'launch.substitutions',
+    'launch_ros',
+    'launch_ros.actions',
+    'robot_bringup.config_resolution',
+    'robot_bringup.launch_profiles',
+    'robot_bringup.launch_common',
+    'robot_bridge.runtime_factory',
+)
 
 
 def _install_launch_stubs() -> None:
@@ -134,66 +151,89 @@ def _install_bridge_runtime_stubs() -> None:
     sys.modules['robot_bridge.runtime_factory'] = runtime_factory
 
 
-def _load_launch_common_module():
-    _install_launch_stubs()
-    _install_robot_bringup_stubs()
-    _install_bridge_runtime_stubs()
-    sys.path.insert(0, str(ROOT))
-    sys.modules.pop('robot_bringup.launch_common', None)
-    return importlib.import_module('robot_bringup.launch_common')
+@contextmanager
+def _isolated_launch_common_module():
+    original_modules = {name: sys.modules.get(name) for name in _STUBBED_MODULE_NAMES}
+    original_sys_path = list(sys.path)
+    try:
+        _install_launch_stubs()
+        _install_robot_bringup_stubs()
+        _install_bridge_runtime_stubs()
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        sys.modules.pop('robot_bringup.launch_common', None)
+        yield importlib.import_module('robot_bringup.launch_common')
+    finally:
+        sys.path[:] = original_sys_path
+        for name in _STUBBED_MODULE_NAMES:
+            original = original_modules[name]
+            if original is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = original
 
 
-def test_bridge_runtime_split_false_still_selects_legacy_when_mode_left_default() -> None:
-    launch_common = _load_launch_common_module()
-    context = _FakeContext({
-        'bridge_runtime_mode': 'split_runtime',
-        'bridge_runtime_split': 'false',
-        'allow_legacy_bridge_runtime': 'true',
-    })
-    actions = launch_common._bridge_runtime_setup(context)
-    settings = {item.name: item.value for item in actions if isinstance(item, _FakeSetLaunchConfiguration)}
-    assert settings['bridge_runtime_mode'] == 'legacy_monolith'
-    assert settings['bridge_runtime_split'] == 'false'
+def test_bridge_runtime_mode_explicitly_selects_legacy_when_rollback_gate_is_enabled() -> None:
+    with _isolated_launch_common_module() as launch_common:
+        context = _FakeContext({
+            'bridge_runtime_mode': 'legacy_monolith',
+            'allow_legacy_bridge_runtime': 'true',
+        })
+        actions = launch_common._bridge_runtime_setup(context)
+        settings = {item.name: item.value for item in actions if isinstance(item, _FakeSetLaunchConfiguration)}
+        assert settings['bridge_runtime_mode'] == 'legacy_monolith'
+        assert settings['bridge_runtime_split'] == 'false'
+
+
+def test_bridge_runtime_mode_rejects_legacy_without_explicit_rollback_gate() -> None:
+    with _isolated_launch_common_module() as launch_common:
+        context = _FakeContext({
+            'bridge_runtime_mode': 'legacy_monolith',
+            'allow_legacy_bridge_runtime': 'false',
+        })
+        actions = launch_common._bridge_runtime_setup(context)
+        shutdowns = [item for item in actions if isinstance(item, _FakeEmitEvent)]
+        assert shutdowns
+        assert 'compatibility-only' in shutdowns[0].event.reason
 
 
 def test_control_barrier_skips_optional_nodes_when_launch_args_disable_them() -> None:
-    launch_common = _load_launch_common_module()
-    context = _FakeContext({
-        'enable_monitor': 'false',
-        'enable_voice': 'true',
-        'enable_vision': 'false',
-    })
-    requirements = launch_common._resolve_control_barrier_requirements(context, include_monitor=True, include_voice=True, include_vision=True)
-    assert requirements == {'nodes': ['/robot_control_lifecycle', '/robot_decision_lifecycle', '/robot_navigation_lifecycle', '/robot_voice'], 'services': [], 'actions': []}
+    with _isolated_launch_common_module() as launch_common:
+        context = _FakeContext({
+            'enable_monitor': 'false',
+            'enable_voice': 'true',
+            'enable_vision': 'false',
+        })
+        requirements = launch_common._resolve_control_barrier_requirements(context, include_monitor=True, include_voice=True, include_vision=True)
+        assert requirements == {'nodes': ['/robot_control_lifecycle', '/robot_decision_lifecycle', '/robot_navigation_lifecycle', '/robot_voice'], 'services': [], 'actions': []}
 
 
 def test_control_barrier_adds_vision_service_and_action_requirements_when_enabled() -> None:
-    launch_common = _load_launch_common_module()
-    context = _FakeContext({
-        'enable_monitor': 'false',
-        'enable_voice': 'false',
-        'enable_vision': 'true',
-    })
-    requirements = launch_common._resolve_control_barrier_requirements(context, include_monitor=True, include_voice=True, include_vision=True)
-    assert requirements == {
-        'nodes': ['/robot_control_lifecycle', '/robot_decision_lifecycle', '/robot_navigation_lifecycle', '/robot_vision'],
-        'services': ['/robot/save_snapshot'],
-        'actions': ['/robot/actions/save_snapshot'],
-    }
-
+    with _isolated_launch_common_module() as launch_common:
+        context = _FakeContext({
+            'enable_monitor': 'false',
+            'enable_voice': 'false',
+            'enable_vision': 'true',
+        })
+        requirements = launch_common._resolve_control_barrier_requirements(context, include_monitor=True, include_voice=True, include_vision=True)
+        assert requirements == {
+            'nodes': ['/robot_control_lifecycle', '/robot_decision_lifecycle', '/robot_navigation_lifecycle', '/robot_vision'],
+            'services': ['/robot/save_snapshot'],
+            'actions': ['/robot/actions/save_snapshot'],
+        }
 
 
 def test_operator_surface_http_contract_prefers_public_host_and_requires_operator_ready() -> None:
-    launch_common = _load_launch_common_module()
-    context = _FakeContext({
-        'enable_api_server': 'true',
-        'api_server_public_host': '10.0.0.8',
-        'api_server_listen_host': '0.0.0.0',
-        'websocket_public_host': '10.0.0.9',
-        'bridge_host': '127.0.0.1',
-        'api_server_port': '9100',
-        'api_server_api_prefix': '/api/v1',
-    })
-    urls, fields = launch_common._operator_surface_http_contract(context)
-    assert urls == ['http://10.0.0.8:9100/api/v1/health']
-    assert fields == ['ok', 'operatorReady']
+    with _isolated_launch_common_module() as launch_common:
+        context = _FakeContext({
+            'enable_api_server': 'true',
+            'api_server_public_host': '10.0.0.8',
+            'api_server_listen_host': '0.0.0.0',
+            'websocket_public_host': '10.0.0.9',
+            'bridge_host': '127.0.0.1',
+            'api_server_port': '9100',
+            'api_server_api_prefix': '/api/v1',
+        })
+        urls, fields = launch_common._operator_surface_http_contract(context)
+        assert urls == ['http://10.0.0.8:9100/api/v1/health']
+        assert fields == ['ok', 'operatorSurfaceReady']

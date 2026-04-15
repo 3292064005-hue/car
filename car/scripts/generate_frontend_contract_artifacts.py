@@ -17,18 +17,56 @@ from robot_contracts.bridge_contract import (  # type: ignore
     COMPATIBILITY_MODES,
     INBOUND_EVENT_TYPES,
     PROTOCOL_VERSION,
+    RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS,
+    RUNTIME_PARAM_FRONTEND_LOCAL_KEYS,
+    RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,
+    RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL,
+    runtime_param_field_contracts,
     SCHEMA_VERSION,
     TCP_PROTOCOL_VERSION,
     UART_PROTOCOL_VERSION,
 )
+from robot_contracts.capabilities import (  # type: ignore
+    DEPRECATED_BRIDGE_CAPABILITY_ALIASES,
+    canonical_bridge_capabilities,
+)
+from robot_utils.mode_catalog import MODE_SEQUENCE, MODE_TRANSITION_TARGETS  # type: ignore
 
 GENERATED_DIR = ROOT / 'robot_frontend' / 'src' / 'generated'
 TS_PATH = GENERATED_DIR / 'bridgeContract.ts'
 JSON_PATH = GENERATED_DIR / 'bridgeContract.json'
+MODE_TRANSITIONS_JSON_PATH = GENERATED_DIR / 'modeTransitions.json'
+MODE_TRANSITIONS_TS_PATH = GENERATED_DIR / 'modeTransitions.ts'
 
 
 def _quoted_list(items: list[str] | tuple[str, ...]) -> str:
     return json.dumps(list(items), ensure_ascii=False)
+
+
+def _mode_transition_payload() -> dict[str, object]:
+    return {
+        'authority': 'backend_mode_catalog',
+        'modes': list(MODE_SEQUENCE),
+        'transitions': {mode: list(MODE_TRANSITION_TARGETS[mode]) for mode in MODE_SEQUENCE},
+    }
+
+
+def _render_mode_transitions_ts(payload: dict[str, object]) -> str:
+    modes = list(payload['modes'])
+    transitions = dict(payload['transitions'])
+    return dedent(
+        f"""
+        import type {{ RobotMode }} from '@/types/robot';
+
+        export const MODE_TRANSITION_AUTHORITY = {payload['authority']!r} as const;
+        export const MODE_SEQUENCE = {_quoted_list(modes)} as const;
+        export const MODE_TRANSITIONS: Record<RobotMode, readonly RobotMode[]> = {json.dumps(transitions, ensure_ascii=False, indent=2)} as const;
+
+        export function locallyAllowsTransition(currentMode: RobotMode, targetMode: RobotMode): boolean {{
+          return (MODE_TRANSITIONS[currentMode] ?? []).includes(targetMode);
+        }}
+        """
+    ).strip() + "\n"
 
 
 def _render_generated_ts(payload: dict[str, object]) -> str:
@@ -36,10 +74,17 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
     inbound_event_types = list(payload['inboundEventTypes'])
     compatibility_modes = list(payload['compatibilityModes'])
     bridge_capabilities = list(payload['bridgeCapabilities'])
+    canonical_bridge_capabilities = list(payload['canonicalBridgeCapabilities'])
+    deprecated_bridge_capability_aliases = dict(payload['deprecatedBridgeCapabilityAliases'])
     command_types_json = _quoted_list(command_types)
     inbound_event_types_json = _quoted_list(inbound_event_types)
     compatibility_modes_json = _quoted_list(compatibility_modes)
     bridge_capabilities_json = _quoted_list(bridge_capabilities)
+    canonical_bridge_capabilities_json = _quoted_list(canonical_bridge_capabilities)
+    deprecated_bridge_capability_aliases_json = json.dumps(deprecated_bridge_capability_aliases, ensure_ascii=False)
+    runtime_param_field_scopes_json = json.dumps(payload['runtimeParamFieldScopes'], ensure_ascii=False, indent=2)
+    runtime_param_backend_authoritative_keys_json = _quoted_list(payload['runtimeParamBackendAuthoritativeKeys'])
+    runtime_param_frontend_local_keys_json = _quoted_list(payload['runtimeParamFrontendLocalKeys'])
     return dedent(
         f"""
         import {{ z }} from 'zod';
@@ -52,10 +97,18 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
         export const SCHEMA_VERSION = WEB_SCHEMA_VERSION;
         export const COMPATIBILITY_MODES = {compatibility_modes_json} as const;
         export const BRIDGE_CAPABILITIES = {bridge_capabilities_json} as const;
+        export const CANONICAL_BRIDGE_CAPABILITIES = {canonical_bridge_capabilities_json} as const;
+        export const DEPRECATED_BRIDGE_CAPABILITY_ALIASES = {deprecated_bridge_capability_aliases_json} as const;
         export const COMMAND_TYPES = {command_types_json} as const;
         export const INBOUND_EVENT_TYPES = {inbound_event_types_json} as const;
         export type GeneratedCommandType = typeof COMMAND_TYPES[number];
         export type GeneratedInboundEventType = typeof INBOUND_EVENT_TYPES[number];
+        export const RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE = {RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE!r} as const;
+        export const RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL = {RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL!r} as const;
+        export const RUNTIME_PARAM_FIELD_SCOPES = {runtime_param_field_scopes_json} as const;
+        export const RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS = {runtime_param_backend_authoritative_keys_json} as const;
+        export const RUNTIME_PARAM_FRONTEND_LOCAL_KEYS = {runtime_param_frontend_local_keys_json} as const;
+        export type GeneratedRuntimeParamFieldScope = typeof RUNTIME_PARAM_FIELD_SCOPES[keyof typeof RUNTIME_PARAM_FIELD_SCOPES];
 
         export const sourceSchema = z.enum(['frontend', 'bridge', 'ros2', 'esp32', 'stm32', 'mock']);
         export const robotModeSchema = z.enum(['BOOT', 'IDLE', 'MANUAL', 'PATROL', 'TRACK', 'SAFE_STOP', 'FAULT']);
@@ -90,6 +143,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
         }});
         export type GeneratedParamProfile = z.infer<typeof paramProfileSchema>;
         export type GeneratedParamProfileKey = keyof GeneratedParamProfile;
+        export const runtimeParamPatchSchema = paramProfileSchema.partial();
 
         export const runtimeParamApplyResultSchema = z.object({{
           ok: z.boolean().optional(),
@@ -100,6 +154,8 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           transactionId: z.string().optional(),
           state: runtimeTransactionStatusSchema.optional(),
           rollbackPerformed: z.boolean().optional(),
+          authoritativeKeys: z.array(z.string()).optional(),
+          ignoredFrontendLocalKeys: z.array(z.string()).optional(),
         }});
         export type GeneratedRuntimeParamApplyResult = z.infer<typeof runtimeParamApplyResultSchema>;
 
@@ -123,6 +179,8 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           completedAt: z.string().nullable().optional(),
           state: runtimeTransactionStatusSchema.optional(),
           rollbackPerformed: z.boolean().optional(),
+          authoritativeKeys: z.array(z.string()).optional(),
+          ignoredFrontendLocalKeys: z.array(z.string()).optional(),
         }});
         export type GeneratedRuntimeParamTransactionState = z.infer<typeof runtimeParamTransactionStateSchema>;
 
@@ -170,8 +228,20 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           safeStopRecoverable: z.boolean().optional(),
           safeStopRequiresManualAck: z.boolean().optional(),
           safeStopBlockedReason: z.string().nullable().optional(),
+          contractSource: z.string().optional(),
+          contractAuthority: z.string().optional(),
           runtimeHealthState: runtimeHealthStateSchema.optional(),
           runtimeHealthReasons: z.array(z.string()).optional(),
+          wifiTransportReady: z.boolean().optional(),
+          uartBoardReady: z.boolean().optional(),
+          motionHeartbeatReady: z.boolean().optional(),
+          commandLinkReady: z.boolean().optional(),
+          gatewayReady: z.boolean().optional(),
+          gatewayReadyReasons: z.array(z.string()).optional(),
+          gatewayReadyTopic: z.string().nullable().optional(),
+          operatorSurfaceReady: z.boolean().optional(),
+          operatorSurfaceReadyReasons: z.array(z.string()).optional(),
+          operatorSurfaceReadyTopic: z.string().nullable().optional(),
           operatorReady: z.boolean().optional(),
           operatorReadyReasons: z.array(z.string()).optional(),
           operatorReadyTopic: z.string().nullable().optional(),
@@ -411,6 +481,17 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           progress: z.number(),
           reason: z.string().nullable().optional(),
         }});
+        export const reportVoiceIngressHealthDetailsSchema = z.object({{
+          state: z.string(),
+          reason: z.string().nullable().optional(),
+          required: z.boolean(),
+          expectedSourceId: z.string().nullable().optional(),
+          lastSourceId: z.string().nullable().optional(),
+          lastCommand: z.string().nullable().optional(),
+          lastConfidence: z.number().nullable().optional(),
+          lastIngressAgeSec: z.number().nullable().optional(),
+          timeoutSec: z.number().nullable().optional(),
+        }});
         export const reportNavigationPathDetailsSchema = z.object({{
           poseCount: z.number().nullable().optional(),
           hasPath: z.boolean().nullable().optional(),
@@ -458,6 +539,10 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           kind: z.literal('navigation_status'),
           details: reportNavigationStatusDetailsSchema,
         }});
+        export const reportVoiceIngressHealthEntrySchema = reportSurfaceEntryBaseSchema.extend({{
+          kind: z.literal('voice_ingress_health'),
+          details: reportVoiceIngressHealthDetailsSchema,
+        }});
         export const reportNavigationPathEntrySchema = reportSurfaceEntryBaseSchema.extend({{
           kind: z.literal('navigation_path'),
           details: reportNavigationPathDetailsSchema,
@@ -473,6 +558,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           reportLocalizationSummaryEntrySchema,
           reportHardwareInterfaceSummaryEntrySchema,
           reportNavigationStatusEntrySchema,
+          reportVoiceIngressHealthEntrySchema,
           reportNavigationPathEntrySchema,
           reportRuntimeSupervisionEntrySchema,
         ]);
@@ -485,6 +571,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           localizationSummary: reportSurfaceEntrySchema.optional(),
           hardwareInterfaceSummary: reportSurfaceEntrySchema.optional(),
           navigationStatus: reportSurfaceEntrySchema.optional(),
+          voiceIngressHealth: reportSurfaceEntrySchema.optional(),
           navigationPath: reportSurfaceEntrySchema.optional(),
           runtimeSupervision: reportSurfaceEntrySchema.optional(),
         }});
@@ -557,8 +644,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           start_patrol: z.object({{ source: z.literal('frontend') }}),
           pause_patrol: z.object({{ source: z.literal('frontend') }}),
           stop_patrol: z.object({{ source: z.literal('frontend') }}),
-          set_param: z.object({{ key: z.enum(['maxLinearSpeed', 'maxAngularSpeed', 'teleopStep', 'trackOffsetDeadband', 'lowPowerThreshold', 'reconnectTimeoutMs']), value: z.number(), source: z.literal('frontend') }}),
-          apply_param_draft: z.object({{ params: paramProfileSchema, source: z.literal('frontend') }}),
+          apply_param_draft: z.object({{ params: runtimeParamPatchSchema.refine((value) => Object.keys(value).length > 0, 'runtime param patch must not be empty'), source: z.literal('frontend') }}),
           apply_param_profile: z.object({{ profileName: z.string(), source: z.literal('frontend') }}),
           speak_fixed_text: z.object({{ text: z.string(), source: z.literal('frontend') }}),
           reset_fault: z.object({{ source: z.literal('frontend') }}),
@@ -574,7 +660,6 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           start_patrol: z.infer<typeof outboundPayloadSchemas.start_patrol>;
           pause_patrol: z.infer<typeof outboundPayloadSchemas.pause_patrol>;
           stop_patrol: z.infer<typeof outboundPayloadSchemas.stop_patrol>;
-          set_param: z.infer<typeof outboundPayloadSchemas.set_param>;
           apply_param_draft: z.infer<typeof outboundPayloadSchemas.apply_param_draft>;
           apply_param_profile: z.infer<typeof outboundPayloadSchemas.apply_param_profile>;
           speak_fixed_text: z.infer<typeof outboundPayloadSchemas.speak_fixed_text>;
@@ -594,12 +679,20 @@ def main() -> int:
         'uartProtocolVersion': str(UART_PROTOCOL_VERSION),
         'compatibilityModes': list(COMPATIBILITY_MODES),
         'bridgeCapabilities': list(BRIDGE_CAPABILITIES),
+        'canonicalBridgeCapabilities': list(canonical_bridge_capabilities()),
+        'deprecatedBridgeCapabilityAliases': dict(DEPRECATED_BRIDGE_CAPABILITY_ALIASES),
         'commandTypes': list(COMMAND_TYPES),
         'inboundEventTypes': list(INBOUND_EVENT_TYPES),
+        'runtimeParamFieldScopes': {key: value['scope'] for key, value in runtime_param_field_contracts().items()},
+        'runtimeParamBackendAuthoritativeKeys': list(RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS),
+        'runtimeParamFrontendLocalKeys': list(RUNTIME_PARAM_FRONTEND_LOCAL_KEYS),
     }
-    JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+    mode_payload = _mode_transition_payload()
+    JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     TS_PATH.write_text(_render_generated_ts(payload), encoding='utf-8')
-    print(json.dumps({'ts': str(TS_PATH), 'json': str(JSON_PATH)}, ensure_ascii=False))
+    MODE_TRANSITIONS_JSON_PATH.write_text(json.dumps(mode_payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    MODE_TRANSITIONS_TS_PATH.write_text(_render_mode_transitions_ts(mode_payload), encoding='utf-8')
+    print(json.dumps({'status': 'ok', 'ts': str(TS_PATH), 'json': str(JSON_PATH), 'modeTransitionsTs': str(MODE_TRANSITIONS_TS_PATH), 'modeTransitionsJson': str(MODE_TRANSITIONS_JSON_PATH)}, ensure_ascii=False))
     return 0
 
 

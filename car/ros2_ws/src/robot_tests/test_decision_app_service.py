@@ -92,7 +92,6 @@ class _Node:
         self.patrol_manager = _PatrolManager()
         self.mode_pub = _Publisher()
         self.event_pub = _Publisher()
-        self.patrol_pub = _Publisher()
         self.track_pub = _Publisher()
         self.speak_pub = _Publisher()
         self.snapshot_pub = _Publisher()
@@ -115,10 +114,6 @@ class _Node:
             'snapshot_on_qrcode': True,
             'safe_stop_on_wifi_loss': True,
             'require_ready_for_patrol': True,
-            'patrol_config_path': '',
-            'strict_patrol_config': False,
-            'allow_default_patrol_fallback': True,
-            'patrol_step_duration': 2.5,
             'default_patrol_route': 'default',
         }
 

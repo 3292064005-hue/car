@@ -13,6 +13,7 @@ from robot_localization.localization_math import Pose2D
 from robot_utils.helpers import safe_json_dumps
 from robot_utils.qos_profiles import qos_for
 from .navigation_model import Goal2D, RoutePlan, build_path, compute_navigation_command, load_route_plan
+from .provider_contract import NavigationProviderContract, ensure_provider_runtime_supported, resolve_navigation_provider
 
 
 class RobotNavigationNode(Node):
@@ -34,6 +35,7 @@ class RobotNavigationNode(Node):
         self.declare_parameter('path_topic', '/robot/navigation/path')
         self.declare_parameter('status_topic', '/robot/navigation/status')
         self.declare_parameter('route_plan_path', '')
+        self.declare_parameter('provider_name', 'simple_nav_provider')
         self.declare_parameter('goal_tolerance_m', 0.18)
         self.declare_parameter('heading_slowdown_radius_m', 1.2)
         self.declare_parameter('max_linear_m_s', 0.26)
@@ -42,6 +44,9 @@ class RobotNavigationNode(Node):
         self.declare_parameter('linear_gain', 0.8)
         self.declare_parameter('control_rate_hz', 10.0)
 
+        self._provider: NavigationProviderContract = ensure_provider_runtime_supported(
+            resolve_navigation_provider(str(self.get_parameter('provider_name').value))
+        )
         self._pose: Pose2D | None = None
         self._goal_queue: Deque[Goal2D] = deque()
         self._goal_ids: Deque[str] = deque()
@@ -105,6 +110,7 @@ class RobotNavigationNode(Node):
             'progress': progress,
             'cmdSource': 'navigation',
             'reason': self._last_reason or None,
+            'provider': self._provider.to_dict(),
         }
         if extra:
             payload.update(extra)

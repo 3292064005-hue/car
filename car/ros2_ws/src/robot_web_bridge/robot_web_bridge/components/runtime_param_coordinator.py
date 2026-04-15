@@ -27,10 +27,11 @@ from robot_contracts.bridge_contract import (
     TRANSACTION_STATE_PENDING,
     TRANSACTION_STATE_TIMEOUT,
     RuntimeParameterTransaction,
-    apply_runtime_param_patch,
-    apply_runtime_param_profile,
+    apply_runtime_param_patch_detailed,
+    apply_runtime_param_profile_detailed,
     apply_runtime_param_update,
     compatibility_ack_status,
+    runtime_param_authoritative_view,
     runtime_param_profiles,
 )
 from robot_contracts.runtime_param_transport import (
@@ -67,6 +68,8 @@ class RuntimeParamCoordinator:
         rollback_params: Mapping[str, Any] | None = None,
         rollback_profile_name: str | None = None,
         rollback_runtime_param_version: int | None = None,
+        authoritative_keys: tuple[str, ...] | list[str] | None = None,
+        ignored_frontend_local_keys: tuple[str, ...] | list[str] | None = None,
     ) -> RuntimeParameterTransaction:
         """Create a tracked runtime-parameter transaction.
 
@@ -121,6 +124,8 @@ class RuntimeParamCoordinator:
                 if rollback_runtime_param_version is None
                 else rollback_runtime_param_version
             ),
+            authoritative_keys=tuple(str(item) for item in tuple(authoritative_keys or ()) if str(item or '').strip()),
+            ignored_frontend_local_keys=tuple(str(item) for item in tuple(ignored_frontend_local_keys or ()) if str(item or '').strip()),
         )
         current_runtime.last_param_apply_result = {
             'ok': True,
@@ -308,6 +313,8 @@ class RuntimeParamCoordinator:
         trace_id: str = '',
         command_id: str = '',
         command_type: str = '',
+        authoritative_keys: tuple[str, ...] | list[str] | None = None,
+        ignored_frontend_local_keys: tuple[str, ...] | list[str] | None = None,
     ) -> None:
         """Commit one validated runtime-parameter candidate as a single transaction.
 
@@ -348,6 +355,8 @@ class RuntimeParamCoordinator:
                 rollback_params=rollback_params,
                 rollback_profile_name=rollback_profile_name,
                 rollback_runtime_param_version=rollback_runtime_param_version,
+                authoritative_keys=authoritative_keys,
+                ignored_frontend_local_keys=ignored_frontend_local_keys,
             )
 
         self._mutate_state(_apply)
@@ -376,7 +385,7 @@ class RuntimeParamCoordinator:
         self._apply_candidate(
             next_params=next_params,
             next_profile_name=self.match_profile_name(next_params),
-            reason=f'set_param:{key}',
+            reason=f'runtime_param_patch:{key}',
             trace_id=trace_id,
             command_id=command_id,
             command_type=command_type,
@@ -407,12 +416,15 @@ class RuntimeParamCoordinator:
             ValueError: If any patch entry fails validation.
 
         Boundary behavior:
-            All provided fields are validated before the projection changes, so
-            frontend "apply draft" remains one transaction from the user's
-            perspective.
+            Browser-local fields are validated for compatibility reporting, but
+            only backend-authoritative fields can start one bridge transaction.
         """
         current_runtime = self._node.state.runtime_params
-        next_params = apply_runtime_param_patch(current_runtime.params, patch=patch)
+        detail = apply_runtime_param_patch_detailed(current_runtime.params, patch=patch)
+        if not detail.authoritative_patch:
+            ignored_label = ', '.join(detail.ignored_frontend_local_keys) if detail.ignored_frontend_local_keys else 'none'
+            return f'runtime parameter draft ignored by backend_authoritative channel: frontend_local_only={ignored_label}'
+        next_params = detail.next_params
         next_profile_name = self.match_profile_name(next_params)
         self._apply_candidate(
             next_params=next_params,
@@ -421,10 +433,18 @@ class RuntimeParamCoordinator:
             trace_id=trace_id,
             command_id=command_id,
             command_type=command_type,
+            authoritative_keys=detail.authoritative_keys,
+            ignored_frontend_local_keys=detail.ignored_frontend_local_keys,
         )
-        changed_keys = sorted(key for key in next_params if current_runtime.params.get(key) != next_params.get(key))
+        changed_keys = sorted(key for key in detail.authoritative_patch if current_runtime.params.get(key) != next_params.get(key))
         changed_label = ', '.join(changed_keys) if changed_keys else 'no changes'
-        return f'runtime parameter draft accepted: profile={next_profile_name}; changed_keys={changed_label}; awaiting consumer confirmations'
+        ignored_label = ', '.join(detail.ignored_frontend_local_keys) if detail.ignored_frontend_local_keys else 'none'
+        authoritative_label = ', '.join(detail.authoritative_keys) if detail.authoritative_keys else 'none'
+        return (
+            f'runtime parameter draft accepted: profile={next_profile_name}; '
+            f'changed_keys={changed_label}; authoritative_keys={authoritative_label}; '
+            f'ignored_frontend_local_keys={ignored_label}; awaiting consumer confirmations'
+        )
 
     def apply_profile(self, *, profile_name: str, trace_id: str = '', command_id: str = '', command_type: str = '') -> str:
         """Apply one predefined runtime-parameter profile.
@@ -443,22 +463,31 @@ class RuntimeParamCoordinator:
             ValueError: If ``profile_name`` is unsupported.
         """
         current_runtime = self._node.state.runtime_params
-        next_params = apply_runtime_param_profile(current_runtime.params, profile_name=profile_name)
+        detail = apply_runtime_param_profile_detailed(current_runtime.params, profile_name=profile_name)
         self._apply_candidate(
-            next_params=next_params,
+            next_params=detail.next_params,
             next_profile_name=profile_name,
             reason=f'apply_param_profile:{profile_name}',
             trace_id=trace_id,
             command_id=command_id,
             command_type=command_type,
+            authoritative_keys=detail.authoritative_keys,
+            ignored_frontend_local_keys=detail.ignored_frontend_local_keys,
         )
-        return f'runtime parameter profile accepted: {profile_name}; awaiting consumer confirmations'
+        ignored_label = ', '.join(detail.ignored_frontend_local_keys) if detail.ignored_frontend_local_keys else 'none'
+        authoritative_label = ', '.join(detail.authoritative_keys) if detail.authoritative_keys else 'none'
+        return (
+            f'runtime parameter profile accepted: {profile_name}; '
+            f'authoritative_keys={authoritative_label}; '
+            f'ignored_frontend_local_keys={ignored_label}; awaiting consumer confirmations'
+        )
 
     def match_profile_name(self, params: Mapping[str, Any]) -> str:
         """Return the exact matching runtime profile name or ``自定义``."""
+        target = runtime_param_authoritative_view(params)
         profiles = runtime_param_profiles()
         for name, profile in profiles.items():
-            if dict(profile) == dict(params):
+            if runtime_param_authoritative_view(profile) == target:
                 return name
         return '自定义'
 
@@ -538,6 +567,8 @@ class RuntimeParamCoordinator:
             transaction_id=active_transaction.transaction_id if transaction_id is None else str(transaction_id or ''),
             ack_mode=ack_mode,
             expected_consumers=list(expected_consumers or active_transaction.expected_consumers or self._expected_consumers()),
+            authoritative_keys=list(active_transaction.authoritative_keys or ()),
+            ignored_frontend_local_keys=list(active_transaction.ignored_frontend_local_keys or ()),
         )
         msg = String()
         msg.data = dumps_runtime_param_payload(payload)

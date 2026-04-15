@@ -42,7 +42,7 @@ def test_dispatcher_preserves_reserved_capacity_for_high_priority_commands() -> 
     )
 
     assert dispatcher.enqueue({'type': 'set_mode', 'event_id': 'n1'}).accepted is True
-    assert dispatcher.enqueue({'type': 'set_param', 'event_id': 'n2'}).accepted is True
+    assert dispatcher.enqueue({'type': 'apply_param_draft', 'event_id': 'n2'}).accepted is True
     assert dispatcher.enqueue({'type': 'save_snapshot', 'event_id': 'n3'}).accepted is True
     rejected = dispatcher.enqueue({'type': 'start_patrol', 'event_id': 'n4'})
     accepted_hp = dispatcher.enqueue({'type': 'estop', 'event_id': 'hp1'})
@@ -63,7 +63,7 @@ def test_dispatcher_limits_processing_to_requested_batch_size() -> None:
         max_queue_size=8,
     )
     for idx in range(5):
-        dispatcher.enqueue({'type': 'set_param', 'event_id': f'evt-{idx}'})
+        dispatcher.enqueue({'type': 'apply_param_draft', 'event_id': f'evt-{idx}'})
 
     processed = dispatcher.process_batch(2)
 

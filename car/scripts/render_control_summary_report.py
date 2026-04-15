@@ -32,7 +32,7 @@ def main() -> int:
     params = load_structured_file(config_path, {})['robot_control']['ros__parameters']
     report = {
         'control_config_path': str(config_path),
-        'source_priority': ['FAULT/SAFE_STOP', 'MANUAL', 'TRACK', 'PATROL', 'IDLE'],
+        'source_priority': ['FAULT/SAFE_STOP', 'MANUAL', 'TRACK', 'NAVIGATION', 'IDLE'],
         'mode_priority_reference': MODE_PRIORITY,
         'limits': {
             'max_linear': params['max_linear'],
@@ -44,7 +44,7 @@ def main() -> int:
         },
         'timeouts_sec': {
             'manual': params['manual_timeout_sec'],
-            'patrol': params['patrol_timeout_sec'],
+            'navigation': params['navigation_timeout_sec'],
             'track': params['track_timeout_sec'],
         },
         'ramp': {

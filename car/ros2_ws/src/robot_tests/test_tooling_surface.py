@@ -14,7 +14,7 @@ def test_fault_injector_and_replay_tools_exist() -> None:
 
 
 def test_reporting_scripts_exist() -> None:
-    required = ['render_state_transition_report.py','render_parameter_schema_report.py','render_control_summary_report.py','render_vision_stability_report.py','render_voice_reject_report.py','render_command_audit_report.py','render_fault_dictionary_report.py','render_command_permission_matrix_report.py','render_transport_summary_report.py','archive_metrics.py', 'check_frontend_bundle_budget.py', 'check_web_bridge_payload_budget.py']
+    required = ['render_state_transition_report.py','render_parameter_schema_report.py','render_control_summary_report.py','render_vision_stability_report.py','render_voice_reject_report.py','render_command_audit_report.py','render_fault_dictionary_report.py','render_command_permission_matrix_report.py','render_transport_summary_report.py','render_legacy_compatibility_report.py','archive_metrics.py', 'check_frontend_bundle_budget.py', 'check_web_bridge_payload_budget.py']
     for name in required:
         assert (SCRIPTS / name).exists(), name
 

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from robot_web_bridge.components.command_surface import CommandSurface
 from robot_web_bridge.components.projection_surface import ProjectionSurface
+from robot_web_bridge.components.observability_surface import ObservabilitySurface
 
 
 class _Param:
@@ -71,3 +72,9 @@ def test_projection_surface_builds_projector_and_snapshot_cache() -> None:
     surface = ProjectionSurface.build(node=node)
     assert surface.projector is not None
     assert surface.snapshot_cache.refresh()['type'] == 'snapshot'
+
+
+def test_observability_surface_builds_projector() -> None:
+    node = _Node()
+    surface = ObservabilitySurface.build(node=node)
+    assert surface.projector is not None

@@ -24,6 +24,7 @@ from robot_web_bridge.state_model import WebBridgeState
 from robot_web_bridge.components.state_store import StateStore
 from robot_web_bridge.web_bridge_node import RobotWebBridgeNode
 from robot_contracts.runtime_param_transport import build_runtime_param_apply_result, dumps_runtime_param_apply_result
+from robot_web_bridge.components.node_runtime_surface import build_command_context
 from std_msgs.msg import String
 
 
@@ -123,7 +124,7 @@ def test_web_bridge_runtime_param_failure_rolls_back_previous_stable_state() -> 
         reason='frontend',
         trace_id='trace-rollback',
         command_id='cmd-rollback',
-        command_type='set_param',
+        command_type='apply_param_draft',
     )
     txn_id = node.state.runtime_params.last_transaction.transaction_id
     assert node.state.runtime_params.params['lowPowerThreshold'] == 30
@@ -170,7 +171,7 @@ def test_web_bridge_runtime_param_timeout_rolls_back_previous_stable_state() -> 
         reason='frontend',
         trace_id='trace-timeout',
         command_id='cmd-timeout',
-        command_type='set_param',
+        command_type='apply_param_draft',
     )
     assert node.state.runtime_params.params['maxLinearSpeed'] == 0.9
     node.now_iso = lambda: '2026-04-01T00:00:04+00:00'  # type: ignore[method-assign]
@@ -195,7 +196,7 @@ def test_web_bridge_runtime_param_success_commits_stable_state_and_emits_applied
         reason='frontend',
         trace_id='trace-commit',
         command_id='cmd-commit',
-        command_type='set_param',
+        command_type='apply_param_draft',
     )
     txn_id = node.state.runtime_params.last_transaction.transaction_id
     version = node.state.runtime_params.runtime_param_version
@@ -314,3 +315,37 @@ def test_transport_listener_lifecycle_toggles_operator_ready_latch() -> None:
     assert node.state.operator_ready is False
     assert node.state.operator_ready_reasons == ['websocket_gateway_stopped']
     assert '"ready":false' in node.operator_ready_pub.messages[-1].data
+
+
+def test_web_bridge_runtime_param_draft_ignores_frontend_local_only_patch() -> None:
+    node = _BridgeStub()
+
+    message = RobotWebBridgeNode.apply_runtime_param_draft(
+        node,
+        params={'teleopStep': 0.11, 'reconnectTimeoutMs': 1800},
+        reason='frontend',
+        trace_id='trace-local-only',
+        command_id='evt-local-only',
+        command_type='apply_param_draft',
+    )
+
+    assert 'frontend_local_only=teleopStep, reconnectTimeoutMs' in message
+    assert node.state.runtime_params.last_transaction.transaction_id == ''
+    assert len(node.runtime_param_pub.messages) == 0
+
+
+def test_build_command_context_requires_full_command_link_health() -> None:
+    node = SimpleNamespace(
+        state=SimpleNamespace(
+            mode='IDLE',
+            fault={'level': 'info', 'code': None, 'estopActive': False, 'safeStopActive': False, 'recoverable': True},
+            power={'lowPowerWarning': False},
+            system_status={'wifi_ok': True, 'uart_ok': False, 'low_power_warn': False, 'low_power_stop': False},
+            bridge_summary={'connected': True},
+            transport_stats={'stale_link': False},
+            stale_flags={'bridge': False, 'chassis': False, 'transport': False},
+            contract_snapshot={},
+        )
+    )
+    context = build_command_context(node)
+    assert context.bridge_connected is False

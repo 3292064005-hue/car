@@ -53,7 +53,7 @@ def test_build_evidence_report_can_mark_final_delivery_eligible_with_verified_ta
         'hardwareIdentity': {},
         'firmwareIdentity': {},
     }
-    monkeypatch.setattr('robot_monitor.evidence_report.build_verification_identity', lambda **kwargs: verification_identity)
+    monkeypatch.setattr('robot_utils.acceptance_bundle.build_verification_identity', lambda **kwargs: verification_identity)
     target.write_text(json.dumps(_verified_target_payload(verification_identity)), encoding='utf-8')
     report = build_evidence_report(metrics_path=metrics, evidence_index_path=evidence, target_environment_acceptance_path=target)
     assert report['verificationScope']['targetEnvironmentAcceptanceVerified'] is True
@@ -101,7 +101,7 @@ def test_build_evidence_report_rejects_target_acceptance_with_mismatched_referen
         'hardwareIdentity': {},
         'firmwareIdentity': {},
     }
-    monkeypatch.setattr('robot_monitor.evidence_report.build_verification_identity', lambda **kwargs: reference_identity)
+    monkeypatch.setattr('robot_utils.acceptance_bundle.build_verification_identity', lambda **kwargs: reference_identity)
     target.write_text(json.dumps(_verified_target_payload(artifact_identity)), encoding='utf-8')
     report = build_evidence_report(metrics_path=metrics, evidence_index_path=evidence, target_environment_acceptance_path=target)
     assert report['verificationScope']['targetEnvironmentAcceptanceVerified'] is False

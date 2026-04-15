@@ -1,4 +1,4 @@
-import { createLegacyEvent } from '@/bridge/protocol';
+import { createMockInboundEvent } from '@/bridge/protocol';
 import { BRIDGE_CAPABILITIES, DEFAULT_WAYPOINTS, PARAM_PRESETS, PROTOCOL_VERSION, SCHEMA_VERSION } from '@/shared/constants';
 import { clamp, deepCloneParams, uuid } from '@/shared/utils';
 import type { BridgeOutboundEvent } from '@/types/robot';
@@ -51,16 +51,26 @@ export class MockTransport implements BridgeTransport {
     this.heartbeatTimer = window.setInterval(() => {
       if (Date.now() < this.state.dropHeartbeatUntil) return;
       this.handlers?.onMessage(
-        createLegacyEvent('heartbeat', {
+        createMockInboundEvent('heartbeat', {
           bridgeConnected: true,
           rosConnected: true,
           stm32Connected: true,
           videoConnected: true,
           voiceConnected: true,
           latencyMs: 24 + Math.round(Math.random() * 28),
+          wifiTransportReady: true,
+          uartBoardReady: true,
+          motionHeartbeatReady: true,
+          commandLinkReady: true,
+          gatewayReady: true,
+          gatewayReadyReasons: ['mock_transport_ready'],
+          gatewayReadyTopic: '/robot/web_bridge/ready',
+          operatorSurfaceReady: true,
+          operatorSurfaceReadyReasons: ['mock_transport_ready'],
+          operatorSurfaceReadyTopic: '/robot/api/health',
           operatorReady: true,
           operatorReadyReasons: ['mock_transport_ready'],
-          operatorReadyTopic: '/robot/web_bridge/ready',
+          operatorReadyTopic: '/robot/api/health',
         }),
       );
     }, 700);
@@ -76,7 +86,7 @@ export class MockTransport implements BridgeTransport {
     if (!this.state.ackTimeoutNext) {
       window.setTimeout(() => {
         this.handlers?.onMessage(
-          createLegacyEvent('command_ack', {
+          createMockInboundEvent('command_ack', {
             commandId: event.eventId,
             status: 'ack',
             lifecycleStatus: 'accepted',
@@ -100,7 +110,7 @@ export class MockTransport implements BridgeTransport {
     const transaction = this.state.lastTransaction;
     const projectionState = transaction?.transactionId && transaction.state === 'pending' ? 'provisional' : 'committed';
     this.handlers?.onMessage(
-      createLegacyEvent('snapshot', {
+      createMockInboundEvent('snapshot', {
         connection: {
           rosConnected: true,
           bridgeConnected: true,
@@ -122,15 +132,25 @@ export class MockTransport implements BridgeTransport {
           outboundRateHz: 0,
           protocolVersion: PROTOCOL_VERSION,
           schemaVersion: SCHEMA_VERSION,
-          capabilities: BRIDGE_CAPABILITIES,
+          capabilities: [...BRIDGE_CAPABILITIES],
           lastSnapshotVersion: SCHEMA_VERSION,
           lastTraceId: transaction?.consumerStatuses?.robot_monitor?.traceId ?? null,
           compatibilityMode: 'native-v4',
           runtimeHealthState: 'ready',
           runtimeHealthReasons: [],
+          wifiTransportReady: true,
+          uartBoardReady: true,
+          motionHeartbeatReady: true,
+          commandLinkReady: true,
+          gatewayReady: true,
+          gatewayReadyReasons: ['mock_transport_ready'],
+          gatewayReadyTopic: '/robot/web_bridge/ready',
+          operatorSurfaceReady: true,
+          operatorSurfaceReadyReasons: ['mock_transport_ready'],
+          operatorSurfaceReadyTopic: '/robot/api/health',
           operatorReady: true,
           operatorReadyReasons: ['mock_transport_ready'],
-          operatorReadyTopic: '/robot/web_bridge/ready',
+          operatorReadyTopic: '/robot/api/health',
         },
         motion: { mode: this.state.mode === 'BOOT' ? 'IDLE' : this.state.mode, lastUpdateAt: now },
         power: {
@@ -252,7 +272,7 @@ export class MockTransport implements BridgeTransport {
       };
       this.emitSnapshot();
       this.handlers?.onMessage(
-        createLegacyEvent('command_ack', {
+        createMockInboundEvent('command_ack', {
           commandId: event.eventId,
           status: 'ack',
           lifecycleStatus: 'applied',
@@ -282,7 +302,7 @@ export class MockTransport implements BridgeTransport {
     this.state.voltage = Number((11.2 + Math.random() * 0.45).toFixed(2));
 
     this.handlers?.onMessage(
-      createLegacyEvent('chassis_state', {
+      createMockInboundEvent('chassis_state', {
         linearVelocity: linear,
         angularVelocity: angular,
         leftWheelSpeed: Number((linear - angular * 0.15).toFixed(2)),
@@ -298,7 +318,7 @@ export class MockTransport implements BridgeTransport {
     );
 
     this.handlers?.onMessage(
-      createLegacyEvent('power_state', {
+      createMockInboundEvent('power_state', {
         batteryPercent: this.state.battery,
         batteryVoltage: this.state.voltage,
         lowPowerWarning: this.state.battery <= this.state.params.lowPowerThreshold,
@@ -307,7 +327,7 @@ export class MockTransport implements BridgeTransport {
       }),
     );
     this.handlers?.onMessage(
-      createLegacyEvent('vision_target', {
+      createMockInboundEvent('vision_target', {
         targetType: moving ? 'inspection-marker' : 'idle-view',
         targetOffsetX: Number((Math.random() * 0.8 - 0.4).toFixed(2)),
         targetOffsetY: Number((Math.random() * 0.4 - 0.2).toFixed(2)),
@@ -321,7 +341,7 @@ export class MockTransport implements BridgeTransport {
     if (Math.random() > 0.72) {
       const command = ['开始巡检', '停止巡检', '进入待机', '左转', '右转'][Math.floor(Math.random() * 5)];
       this.handlers?.onMessage(
-        createLegacyEvent('voice_cmd', {
+        createMockInboundEvent('voice_cmd', {
           lastVoiceCommand: command,
           voiceConfidence: Number((0.78 + Math.random() * 0.17).toFixed(2)),
           speaking: false,
@@ -337,7 +357,7 @@ export class MockTransport implements BridgeTransport {
       this.state.completedPoints = Math.min(4, Math.max(this.state.completedPoints, Math.round(this.state.progress * 4)));
       this.state.currentWaypoint = DEFAULT_WAYPOINTS[Math.min(3, this.state.completedPoints)]?.id ?? 'P4';
       this.handlers?.onMessage(
-        createLegacyEvent('task_event', {
+        createMockInboundEvent('task_event', {
           patrolStatus: this.state.progress >= 1 ? 'completed' : 'running',
           currentWaypoint: this.state.currentWaypoint,
           progress: this.state.progress,
@@ -359,7 +379,7 @@ export class MockTransport implements BridgeTransport {
     const now = new Date().toISOString();
     const log = (message: string, domain: 'CONTROL' | 'SAFETY' | 'TASK' | 'PARAM' | 'VOICE' = 'CONTROL') => {
       this.handlers?.onMessage(
-        createLegacyEvent('system_log', {
+        createMockInboundEvent('system_log', {
           id: uuid('log'),
           timestamp: now,
           level: domain === 'SAFETY' ? 'ERROR' : 'INFO',
@@ -372,23 +392,23 @@ export class MockTransport implements BridgeTransport {
     switch (event.type) {
       case 'set_mode':
         this.state.mode = event.payload.mode;
-        this.handlers?.onMessage(createLegacyEvent('mode_state', { mode: event.payload.mode, isManualOverride: event.payload.mode === 'MANUAL', lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('mode_state', { mode: event.payload.mode, isManualOverride: event.payload.mode === 'MANUAL', lastUpdateAt: now }));
         log(`模式切换为 ${event.payload.mode}`);
         break;
       case 'teleop_cmd':
         this.state.mode = 'MANUAL';
-        this.handlers?.onMessage(createLegacyEvent('chassis_state', { mode: 'MANUAL', isManualOverride: true, linearVelocity: event.payload.linear, angularVelocity: event.payload.angular, leftWheelSpeed: Number((event.payload.linear - event.payload.angular * 0.15).toFixed(2)), rightWheelSpeed: Number((event.payload.linear + event.payload.angular * 0.15).toFixed(2)), commandSource: 'ui', lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('chassis_state', { mode: 'MANUAL', isManualOverride: true, linearVelocity: event.payload.linear, angularVelocity: event.payload.angular, leftWheelSpeed: Number((event.payload.linear - event.payload.angular * 0.15).toFixed(2)), rightWheelSpeed: Number((event.payload.linear + event.payload.angular * 0.15).toFixed(2)), commandSource: 'ui', lastUpdateAt: now }));
         break;
       case 'stop_now':
-        this.handlers?.onMessage(createLegacyEvent('chassis_state', { linearVelocity: 0, angularVelocity: 0, leftWheelSpeed: 0, rightWheelSpeed: 0, lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('chassis_state', { linearVelocity: 0, angularVelocity: 0, leftWheelSpeed: 0, rightWheelSpeed: 0, lastUpdateAt: now }));
         log('已执行立即停车命令');
         break;
       case 'estop':
         this.state.estop = true;
         this.state.safeStop = true;
         this.state.mode = 'SAFE_STOP';
-        this.handlers?.onMessage(createLegacyEvent('fault_event', { level: 'critical', code: 'ESTOP', message: '前端触发急停', estopActive: true, safeStopActive: true, timeoutStopActive: false, lastUpdateAt: now }));
-        this.handlers?.onMessage(createLegacyEvent('mode_state', { mode: 'SAFE_STOP', lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('fault_event', { level: 'critical', code: 'ESTOP', message: '前端触发急停', estopActive: true, safeStopActive: true, timeoutStopActive: false, lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('mode_state', { mode: 'SAFE_STOP', lastUpdateAt: now }));
         log('急停已触发', 'SAFETY');
         break;
       case 'resume_from_safe_stop':
@@ -396,8 +416,8 @@ export class MockTransport implements BridgeTransport {
         this.state.safeStop = false;
         this.state.faultLock = false;
         this.state.mode = 'IDLE';
-        this.handlers?.onMessage(createLegacyEvent('fault_event', { level: 'info', code: null, message: '安全停车已解除', estopActive: false, safeStopActive: false, timeoutStopActive: false, lastUpdateAt: now }));
-        this.handlers?.onMessage(createLegacyEvent('mode_state', { mode: 'IDLE', lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('fault_event', { level: 'info', code: null, message: '安全停车已解除', estopActive: false, safeStopActive: false, timeoutStopActive: false, lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('mode_state', { mode: 'IDLE', lastUpdateAt: now }));
         log('已从 SAFE_STOP 恢复到 IDLE', 'SAFETY');
         break;
       case 'start_patrol':
@@ -405,12 +425,12 @@ export class MockTransport implements BridgeTransport {
         this.state.progress = 0.25;
         this.state.completedPoints = 1;
         this.state.currentWaypoint = 'P2';
-        this.handlers?.onMessage(createLegacyEvent('task_event', { patrolStatus: 'running', currentWaypoint: 'P2', progress: 0.25, completedPoints: 1, totalPoints: 4, lastTaskEvent: now, waypoints: DEFAULT_WAYPOINTS.map((point, index) => ({ ...point, status: index === 0 ? 'done' : index === 1 ? 'running' : 'pending' })) }));
-        this.handlers?.onMessage(createLegacyEvent('mode_state', { mode: 'PATROL', lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('task_event', { patrolStatus: 'running', currentWaypoint: 'P2', progress: 0.25, completedPoints: 1, totalPoints: 4, lastTaskEvent: now, waypoints: DEFAULT_WAYPOINTS.map((point, index) => ({ ...point, status: index === 0 ? 'done' : index === 1 ? 'running' : 'pending' })) }));
+        this.handlers?.onMessage(createMockInboundEvent('mode_state', { mode: 'PATROL', lastUpdateAt: now }));
         log('巡检任务已开始', 'TASK');
         break;
       case 'pause_patrol':
-        this.handlers?.onMessage(createLegacyEvent('task_event', { patrolStatus: 'paused', lastTaskEvent: now }));
+        this.handlers?.onMessage(createMockInboundEvent('task_event', { patrolStatus: 'paused', lastTaskEvent: now }));
         log('巡检任务已暂停', 'TASK');
         break;
       case 'stop_patrol':
@@ -418,19 +438,12 @@ export class MockTransport implements BridgeTransport {
         this.state.progress = 0;
         this.state.completedPoints = 0;
         this.state.currentWaypoint = null;
-        this.handlers?.onMessage(createLegacyEvent('task_event', { patrolStatus: 'aborted', currentWaypoint: null, progress: 0, completedPoints: 0, totalPoints: 4, lastTaskEvent: now, waypoints: DEFAULT_WAYPOINTS }));
-        this.handlers?.onMessage(createLegacyEvent('mode_state', { mode: 'IDLE', lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('task_event', { patrolStatus: 'aborted', currentWaypoint: null, progress: 0, completedPoints: 0, totalPoints: 4, lastTaskEvent: now, waypoints: DEFAULT_WAYPOINTS }));
+        this.handlers?.onMessage(createMockInboundEvent('mode_state', { mode: 'IDLE', lastUpdateAt: now }));
         log('巡检任务已停止', 'TASK');
         break;
-      case 'set_param': {
-        const nextParams = { ...this.state.params, [event.payload.key]: event.payload.value };
-        const nextProfileName = this.profileNameForParams(nextParams);
-        this.beginParamTransaction(event, nextParams, nextProfileName, `set_param:${event.payload.key}`);
-        log(`参数 ${event.payload.key} 已作为事务提交`, 'PARAM');
-        break;
-      }
       case 'apply_param_draft': {
-        const nextParams = deepCloneParams(event.payload.params);
+        const nextParams = deepCloneParams({ ...this.state.params, ...event.payload.params });
         const nextProfileName = this.profileNameForParams(nextParams);
         this.beginParamTransaction(event, nextParams, nextProfileName, 'apply_param_draft');
         log(`已提交参数草稿事务 (${Object.keys(event.payload.params).length} 项)`, 'PARAM');
@@ -439,7 +452,7 @@ export class MockTransport implements BridgeTransport {
       case 'apply_param_profile': {
         const profile = PARAM_PRESETS[event.payload.profileName];
         if (!profile) {
-          this.handlers?.onMessage(createLegacyEvent('command_ack', { commandId: event.eventId, status: 'rejected', lifecycleStatus: 'rejected', message: `未知参数配置：${event.payload.profileName}`, traceId: event.traceId }));
+          this.handlers?.onMessage(createMockInboundEvent('command_ack', { commandId: event.eventId, status: 'rejected', lifecycleStatus: 'rejected', message: `未知参数配置：${event.payload.profileName}`, traceId: event.traceId }));
           log(`参数配置不存在：${event.payload.profileName}`, 'PARAM');
           break;
         }
@@ -448,9 +461,9 @@ export class MockTransport implements BridgeTransport {
         break;
       }
       case 'speak_fixed_text':
-        this.handlers?.onMessage(createLegacyEvent('voice_cmd', { speaking: true, lastSpeakText: event.payload.text, lastVoiceCommand: '手动播报', voiceConfidence: 1, lastUpdateAt: now }));
+        this.handlers?.onMessage(createMockInboundEvent('voice_cmd', { speaking: true, lastSpeakText: event.payload.text, lastVoiceCommand: '手动播报', voiceConfidence: 1, lastUpdateAt: now }));
         window.setTimeout(() => {
-          this.handlers?.onMessage(createLegacyEvent('voice_cmd', { speaking: false, lastSpeakText: event.payload.text, lastUpdateAt: new Date().toISOString() }));
+          this.handlers?.onMessage(createMockInboundEvent('voice_cmd', { speaking: false, lastSpeakText: event.payload.text, lastUpdateAt: new Date().toISOString() }));
         }, 900);
         log(`播报文本：${event.payload.text}`, 'VOICE');
         break;

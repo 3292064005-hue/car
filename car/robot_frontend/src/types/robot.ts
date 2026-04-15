@@ -74,15 +74,27 @@ export interface ConnectionState {
   capabilities: string[];
   lastSnapshotVersion: string | null;
   lastTraceId: string | null;
-  compatibilityMode: 'native-v4' | 'legacy-v3' | 'legacy-v2';
+  compatibilityMode: 'native-v4';
   allowedTargetModes?: RobotMode[];
   modeReasons?: Partial<Record<RobotMode, string>>;
   commandPermissions?: Partial<Record<CommandType, { allowed: boolean; reason?: string }>>;
   safeStopRecoverable?: boolean;
   safeStopRequiresManualAck?: boolean;
   safeStopBlockedReason?: string | null;
+  contractSource?: string;
+  contractAuthority?: string;
   runtimeHealthState?: 'ready' | 'degraded' | 'unavailable';
   runtimeHealthReasons?: string[];
+  wifiTransportReady?: boolean;
+  uartBoardReady?: boolean;
+  motionHeartbeatReady?: boolean;
+  commandLinkReady?: boolean;
+  gatewayReady?: boolean;
+  gatewayReadyReasons?: string[];
+  gatewayReadyTopic?: string | null;
+  operatorSurfaceReady?: boolean;
+  operatorSurfaceReadyReasons?: string[];
+  operatorSurfaceReadyTopic?: string | null;
   operatorReady?: boolean;
   operatorReadyReasons?: string[];
   operatorReadyTopic?: string | null;
@@ -214,10 +226,12 @@ export type RuntimeParamApplyResult = GeneratedRuntimeParamApplyResult;
 export type RuntimeParamConsumerStatus = GeneratedRuntimeParamConsumerStatus;
 export type RuntimeParamTransactionState = GeneratedRuntimeParamTransactionState;
 export type RuntimeParamProjectionState = 'committed' | 'provisional';
+export type ParamProfileScope = 'runtime' | 'local';
 
 export interface StoredProfiles {
   activeProfileName: string;
   profiles: Record<string, ParamProfile>;
+  profileScopes: Record<string, ParamProfileScope>;
   draft: ParamProfile;
   applied: ParamProfile;
   configDigest: string | null;
@@ -283,6 +297,8 @@ export interface UiState {
 }
 
 export interface ReplaySession {
+  kind?: 'offline-session-export';
+  exportScope?: 'frontend-state-snapshot';
   exportedAt: string;
   sourceName: string;
   version?: string;
@@ -317,7 +333,8 @@ export interface EventEnvelope<TType extends string = string, TPayload = unknown
   operator?: string;
   reason?: string;
   traceId?: string;
-  capabilities?: string[];
+  compatibilityMode?: 'native-v4';
+  capabilities?: readonly string[];
   origin?: string;
   dedupeKey?: string;
   retryPolicy?: 'never' | 'once' | 'aggressive';

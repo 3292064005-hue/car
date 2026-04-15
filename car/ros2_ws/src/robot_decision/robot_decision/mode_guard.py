@@ -161,8 +161,8 @@ class ModeGuard:
                 return False, 'fault mode can only reset to IDLE'
             if self._node.current_mode == MODE_PATROL and requested_mode != MODE_PATROL:
                 manual_requester = requested_by not in {'decision', 'fault', 'system', 'action', 'vision', 'app_service'}
-                if manual_requester and not self._node.patrol_manager.manual_interrupt_allowed():
-                    return False, 'manual_interrupt_blocked_by_step_policy'
+                if manual_requester and self._node.context.navigation_state in {'failed', 'cancelled'}:
+                    return False, 'manual_interrupt_deferred_until_navigation_stabilizes'
             if not can_transition(self._node.current_mode, requested_mode):
                 return False, explain_transition(self._node.current_mode, requested_mode)
             self._node._set_mode_locked(requested_mode, requested_by, reason)

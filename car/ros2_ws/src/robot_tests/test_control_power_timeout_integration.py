@@ -38,7 +38,6 @@ class _FakeNode:
     def __init__(self) -> None:
         self.mode = 'IDLE'
         self.manual_cmd = object()
-        self.patrol_cmd = object()
         self.track_cmd = object()
         self.navigation_cmd = object()
         self.last_fault = None
@@ -55,7 +54,7 @@ class _FakeNode:
         self.summary_pub = _Publisher()
         self._params = {
             'manual_timeout_sec': 0.6,
-            'patrol_timeout_sec': 0.8,
+            'navigation_timeout_sec': 0.8,
             'track_timeout_sec': 0.5,
             'max_linear': 0.3,
             'max_angular': 1.2,

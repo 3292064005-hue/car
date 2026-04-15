@@ -6,3 +6,13 @@ robot_hardware_interface:
     summary_topic: /robot/hardware_interface/summary
     left_wheel_joint_name: left_wheel_joint
     right_wheel_joint_name: right_wheel_joint
+    compatibility_surface_role: ros_projection_only
+    board_validation_in_repo: false
+    board_execution_confirmed: false
+    feedback_source: external_transport_or_mock
+    actuation_boundary: outside_ros_projection_node
+    transport_authority: external_board_controller
+    verification_stage: host_harness_only
+    command_transport: tcp_json_bridge
+    verification_artifact_path: ''
+    direct_driver_lane_policy: separate_package_required

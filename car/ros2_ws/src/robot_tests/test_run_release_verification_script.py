@@ -33,10 +33,6 @@ def test_run_release_verification_frontend_calls_expected_steps(tmp_path: Path) 
         bin_dir / 'python3',
         f"#!/usr/bin/env bash\necho python3:$* >> '{log_path}'\nexit 0\n",
     )
-    _write_executable(
-        bin_dir / 'npm',
-        f"#!/usr/bin/env bash\necho npm:$* >> '{log_path}'\nexit 0\n",
-    )
 
     env = os.environ.copy()
     env['PATH'] = f"{bin_dir}:{env['PATH']}"
@@ -48,9 +44,7 @@ def test_run_release_verification_frontend_calls_expected_steps(tmp_path: Path) 
     assert calls[0] == 'python3:scripts/generate_frontend_contract_artifacts.py'
     assert any(line == 'python3:-m pytest -q ros2_ws/src/robot_tests' for line in calls)
     assert 'python3:scripts/check_embedded_source_sync.py' in calls
-    assert 'npm:--prefix robot_frontend run typecheck' in calls
-    assert 'npm:--prefix robot_frontend run build' in calls
-    assert 'python3:scripts/check_frontend_bundle_budget.py' in calls
+    assert any(line.startswith('python3:scripts/run_frontend_workspace_command.py -- bash -lc npm run typecheck && npm run build && python3 ../scripts/check_frontend_bundle_budget.py --dist-root dist') for line in calls)
     assert calls[-1] == 'python3:scripts/render_release_quality_manifest.py --output /tmp/release_quality_manifest.json --history-dir /tmp/release_quality_history --profile-report-path /tmp/profile_minimal.json --evidence-report-path /tmp/evidence_report.json --acceptance-report-path /tmp/acceptance_report.json --common-checks-complete true --frontend-lane true --ros-smoke-lane false --integrated-frontend-smoke-lane false'
 
 
@@ -141,10 +135,6 @@ exit 0
 ''',
     )
     _write_executable(
-        bin_dir / 'npm',
-        f"#!/usr/bin/env bash\necho npm:$* >> '{log_path}'\nexit 0\n",
-    )
-    _write_executable(
         bin_dir / 'colcon',
         f"#!/usr/bin/env bash\necho colcon:$* >> '{log_path}'\nexit 0\n",
     )
@@ -165,8 +155,8 @@ exit 0
         check=True,
     )
     calls = log_path.read_text(encoding='utf-8').splitlines()
-    assert 'npm:--prefix robot_frontend run typecheck' in calls
-    assert 'npm:--prefix robot_frontend exec playwright install --with-deps chromium' in calls
+    assert any(line.startswith('python3:scripts/run_frontend_workspace_command.py -- bash -lc npm run typecheck && npm run build && python3 ../scripts/check_frontend_bundle_budget.py --dist-root dist') for line in calls)
+    assert 'python3:scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium' in calls
     assert any(
         line.startswith('python3:scripts/run_integrated_frontend_bridge_smoke.py ')
         and f'--launch-arg config_root:={config_root}' in line

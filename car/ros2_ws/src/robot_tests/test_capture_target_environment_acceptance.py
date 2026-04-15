@@ -75,7 +75,7 @@ def _identity(*, hardware_identity=None, firmware_identity=None) -> dict:
 def test_capture_target_environment_acceptance_writes_expected_payload(tmp_path, monkeypatch) -> None:
     output_path = tmp_path / 'target_environment_acceptance.json'
     manifest_path = tmp_path / 'release_quality_manifest.json'
-    manifest_path.write_text('{"status": "ready_for_release"}\n', encoding='utf-8')
+    manifest_path.write_text('{"status": "ready_operator_e2e_mock_robot"}\n', encoding='utf-8')
 
     monkeypatch.setattr(MODULE, '_command_output', lambda *args: {'available': True, 'path': f'/usr/bin/{args[0]}', 'output': 'mock-version'})
     monkeypatch.setattr(MODULE.importlib.util, 'find_spec', lambda name: object() if name == 'rclpy' else None)

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node ./scripts/run-local-tool.mjs vite",
-    "generate:contract": "python3 ../scripts/generate_frontend_contract_artifacts.py",
+    "generate:contract": "python3 ../scripts/generate_frontend_contract_artifacts.py && python3 ../scripts/generate_governance_artifacts.py",
     "typecheck": "npm run generate:contract && node ./scripts/run-local-tool.mjs tsc --noEmit",
     "test": "npm run typecheck",
     "build": "npm run generate:contract && node ./scripts/run-local-tool.mjs tsc --noEmit && node ./scripts/run-local-tool.mjs vite build",
@@ -21,7 +21,8 @@
     "test:static": "npm run typecheck",
     "test:e2e:ci": "playwright test --reporter=line",
     "test:e2e:live": "PLAYWRIGHT_LIVE_BRIDGE=1 playwright test tests/live_bridge.spec.ts --reporter=line",
-    "verify:e2e": "npm run typecheck && npm run build && npm run test:e2e:ci"
+    "verify:e2e": "npm run typecheck && npm run build && npm run test:e2e:ci",
+    "test:profile-scopes": "node ./scripts/run-node-script-with-deps.mjs ./scripts/verify_profile_scope_logic.mjs"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.13.23",

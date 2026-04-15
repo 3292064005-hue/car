@@ -43,7 +43,8 @@ def test_release_quality_manifest_marks_only_executed_lanes(tmp_path: Path) -> N
     )
     payload = json.loads(output.read_text(encoding='utf-8'))
     assert payload['status'] == 'ready_frontend_mocked_transport'
-    assert payload['legacyStatus'] == 'evidence_incomplete'
+    assert 'legacyStatus' not in payload
+    assert payload['deliveryEvidenceTiers']['highestTier'] == 'source-package-valid'
     assert payload['qualityScorecard']['contractCompatibility'] is True
     assert payload['qualityScorecard']['configConsistency'] is True
     assert payload['qualityScorecard']['backendHealth'] is True
@@ -59,6 +60,10 @@ def test_release_quality_manifest_marks_only_executed_lanes(tmp_path: Path) -> N
     assert payload['verificationScope']['hardwareInLoopVerified'] is False
     assert payload['verificationScope']['verificationTiers']['realBoardClaimFloor']['key'] == 'hardware_in_loop'
     assert payload['artifacts']['evidenceReport']['exists'] is True
+    assert payload['releaseGateSatisfied'] is False
+    assert payload['releaseDecision'] == 'blocked'
+    assert 'runtime_consumer_closure' in payload['gateStates']
+    assert 'target_environment_acceptance' in payload['gateStates']
 
 
 
@@ -72,6 +77,8 @@ def test_release_quality_manifest_defaults_common_surfaces_to_false_without_comm
     assert payload['qualityScorecard']['configConsistency'] is False
     assert payload['qualityScorecard']['backendHealth'] is False
     assert payload['evidenceSummary']['highestVerifiedEvidenceClass']['key'] == 'unit_stubbed'
+    assert payload['releaseGateSatisfied'] is False
+    assert any(issue['code'] == 'common_checks' for issue in payload['blockingIssues'])
 
 
 
@@ -107,10 +114,20 @@ def test_release_quality_manifest_writes_history_index(tmp_path: Path) -> None:
 
 
 
-def test_release_quality_manifest_requires_all_high_value_lanes_for_ready_for_release(tmp_path: Path) -> None:
+def test_release_quality_manifest_requires_target_environment_acceptance_for_release_candidate(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[3]
     script = repo_root / 'scripts' / 'render_release_quality_manifest.py'
     output = tmp_path / 'manifest.json'
+    target_acceptance = tmp_path / 'target_environment_acceptance.json'
+    target_acceptance.write_text(
+        json.dumps({
+            'schemaVersion': 2,
+            'artifactType': 'target_environment_acceptance',
+            'status': 'target_environment_accepted',
+            'verificationCoverage': {'hardwareInLoopVerified': True, 'realBoardObserved': True},
+        }),
+        encoding='utf-8',
+    )
     subprocess.run(
         [
             sys.executable,
@@ -125,15 +142,72 @@ def test_release_quality_manifest_requires_all_high_value_lanes_for_ready_for_re
             'true',
             '--integrated-frontend-smoke-lane',
             'true',
+            '--target-environment-acceptance-path',
+            str(target_acceptance),
         ],
         cwd=str(repo_root),
         check=True,
     )
     payload = json.loads(output.read_text(encoding='utf-8'))
     assert payload['status'] == 'ready_operator_e2e_mock_robot'
-    assert payload['legacyStatus'] == 'ready_for_release'
-    assert payload['verificationScope']['surface'] == 'host_harness_mock_robot_only'
+    assert 'legacyStatus' not in payload
+    assert payload['deliveryEvidenceTiers']['targetEnvironmentValid'] is True
+    assert payload['verificationScope']['surface'] == 'host_harness_mock_robot_until_target_environment_is_verified'
     assert payload['verificationScope']['targetEnvironmentAcceptanceRequiredForRelease'] is True
     assert payload['verificationScope']['verificationTiers']['highestVerifiedEvidenceClass']['key'] == 'integration_live_ros_mock_robot'
     assert payload['qualityScorecard']['bridgeIntegration'] is True
     assert payload['qualityScorecard']['operatorPathEndToEnd'] is True
+    assert payload['runtimeSignalContract']['runtimeConsumerClosureCompleted'] is True
+    assert payload['releaseGateSatisfied'] is True
+    assert payload['releaseDecision'] == 'target_environment_release_candidate'
+    assert payload['blockingIssues'] == []
+
+
+
+def test_release_quality_manifest_binds_runtime_gate_to_profile_report_context(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    script = repo_root / 'scripts' / 'render_release_quality_manifest.py'
+    output = tmp_path / 'manifest.json'
+    config_root = tmp_path / 'cfg'
+    config_root.mkdir()
+    (config_root / 'launch_profiles.yaml').write_text(
+        '''profiles:
+  minimal:
+    enable_voice: false
+    enable_vision: false
+    enable_monitor: false
+    enable_teleop: true
+    use_mock_robot: true
+    enable_web_bridge: false
+''',
+        encoding='utf-8',
+    )
+    profile_report = tmp_path / 'profile.json'
+    profile_report.write_text(
+        json.dumps({
+            'profile': {'name': 'minimal'},
+            'config_resolution': {'raw_input': str(config_root), 'config_root': str(config_root)},
+        }),
+        encoding='utf-8',
+    )
+    subprocess.run(
+        [
+            sys.executable,
+            str(script),
+            '--output',
+            str(output),
+            '--profile',
+            'mock',
+            '--profile-report-path',
+            str(profile_report),
+            '--common-checks-complete',
+            'true',
+        ],
+        cwd=str(repo_root),
+        check=True,
+    )
+    payload = json.loads(output.read_text(encoding='utf-8'))
+    assert payload['releaseRuntimeContext']['profile'] == 'minimal'
+    assert payload['runtimeSignalContract']['profile'] == 'minimal'
+    assert payload['gateStates']['runtime_consumer_closure']['details']['profile'] == 'minimal'
+    assert payload['releaseRuntimeContext']['configPath'] == str(config_root)

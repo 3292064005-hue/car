@@ -20,7 +20,6 @@ _REQUIRED_CONFIGS = (
     'monitor.yaml',
     'vision.yaml',
     'voice.yaml',
-    'patrol.yaml',
     'fault.yaml',
 )
 
@@ -108,14 +107,31 @@ def _runtime_paths(config_dir: Path) -> dict[str, str]:
 
 
 
-def _hardware_boundary(profile_name: str, *, use_mock_robot: bool) -> dict[str, Any]:
+def _hardware_boundary(profile_name: str, *, deployment_tier: str, hardware_boundary_mode: str, use_mock_robot: bool) -> dict[str, Any]:
+    """Describe the explicit Ubuntu/runtime vs board-level validation boundary.
+
+    Args:
+        profile_name: Effective launch profile name.
+        deployment_tier: ``host_harness`` or ``real_robot``.
+        hardware_boundary_mode: Boundary label derived from the launch profile.
+        use_mock_robot: Whether the runtime targets the in-repo mock robot.
+
+    Returns:
+        Serializable hardware-boundary snapshot for reports and startup gates.
+
+    Raises:
+        None.
+    """
     return {
         'profile': profile_name,
-        'launch_profile_requires_real_robot': not use_mock_robot,
+        'deployment_tier': deployment_tier,
+        'hardware_boundary_mode': hardware_boundary_mode,
+        'launch_profile_requires_real_robot': deployment_tier == 'real_robot',
         'board_validation_performed_by_preflight': False,
         'board_validation_scope': 'ubuntu_side_preflight_validates_launch_readiness_only',
         'embedded_host_harness_script': str((_canonical_repo_root() / 'scripts' / 'check_embedded_host_builds.py').resolve()),
         'operator_note': 'ESP32-S3 and STM32 board-level firmware validation remains outside Ubuntu-side preflight.',
+        'mock_robot_transport': bool(use_mock_robot),
     }
 
 
@@ -166,6 +182,8 @@ def build_preflight_report(
         'surface': surface,
         'preflight_enabled': profile.preflight_checks_enabled,
         'operational_class': profile.operational_class(),
+        'deployment_tier': profile.deployment_tier(),
+        'hardware_boundary_mode': profile.hardware_boundary_mode(),
         'required_configs': list(required_config_files()),
         'runtime_paths': paths,
         'startup_sequence': list(profile.startup_sequence()),
@@ -179,7 +197,12 @@ def build_preflight_report(
         'launch_profile_resolution': launch_profile_resolution(config_path),
         'environment': environment,
         'runtime_policy': runtime_policy_snapshot(),
-        'hardware_boundary': _hardware_boundary(profile.name, use_mock_robot=profile.use_mock_robot),
+        'hardware_boundary': _hardware_boundary(
+            profile.name,
+            deployment_tier=profile.deployment_tier(),
+            hardware_boundary_mode=profile.hardware_boundary_mode(),
+            use_mock_robot=profile.use_mock_robot,
+        ),
         'startup_gate_enabled': startup_gate,
         'checks': checks_payload,
         'ok': all(bool(item['ok']) for item in checks_payload),

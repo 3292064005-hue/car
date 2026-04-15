@@ -34,7 +34,6 @@ from robot_utils.config_loader import ConfigValidationError, load_structured_fil
 from robot_utils.parameter_schema import (
     validate_color_profiles,
     validate_launch_profiles,
-    validate_patrol_config,
     validate_ros_params,
 )
 
@@ -44,9 +43,7 @@ def validate_file(path: Path) -> tuple[bool, str]:
     data = load_structured_file(str(path), {})
     try:
         name = path.name
-        if name == 'patrol.yaml':
-            validate_patrol_config(data)
-        elif name == 'launch_profiles.yaml':
+        if name == 'launch_profiles.yaml':
             validate_launch_profiles(data)
         elif name == 'vision.yaml':
             validate_ros_params(data, 'robot_vision', required=('stream_url', 'poll_period', 'snapshot_dir', 'enable_debug_overlay', 'capture_process_enabled', 'capture_ipc_queue_max'))
@@ -65,9 +62,20 @@ def validate_file(path: Path) -> tuple[bool, str]:
                 required=('track_lost_limit', 'auto_track_on_target', 'decision_intent_queue_max', 'decision_intent_batch_max'),
             )
         elif name == 'voice.yaml':
-            validate_ros_params(data, 'robot_voice', required=('debounce_sec',))
+            validate_ros_params(data, 'robot_voice', required=('debounce_sec', 'raw_cmd_topic', 'accepted_cmd_topic', 'ingress_health_topic', 'ingress_timeout_sec'))
         elif name == 'monitor.yaml':
-            validate_ros_params(data, 'robot_monitor', required=('summary_period', 'event_log_path', 'metrics_path', 'diagnostics_enabled', 'lifecycle_manager_status_topic'))
+            validate_ros_params(
+                data,
+                'robot_monitor',
+                required=(
+                    'summary_period',
+                    'event_log_path',
+                    'metrics_path',
+                    'diagnostics_enabled',
+                    'lifecycle_manager_status_topic',
+                    'voice_ingress_health_topic',
+                ),
+            )
         elif name == 'lifecycle_manager.yaml':
             validate_ros_params(data, 'robot_lifecycle_manager', required=('autostart', 'managed_nodes', 'bond_topic', 'status_topic', 'ready_topic'))
         elif name == 'fault.yaml':

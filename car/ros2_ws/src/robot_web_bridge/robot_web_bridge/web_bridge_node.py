@@ -48,6 +48,7 @@ from .internal_command_socket import InternalCommandSocketServer
 from .components.runtime_param_coordinator import RuntimeParamCoordinator
 from .components.command_surface import CommandSurface
 from .components.projection_surface import ProjectionSurface
+from .components.observability_surface import ObservabilitySurface
 from .components import node_runtime_surface as node_runtime
 from .envelope import EnvelopeFactory, build_connection_payload
 from .payload_budget import (
@@ -107,6 +108,7 @@ class RobotWebBridgeNode(Node):
         self.readiness_cache = self.command_surface.readiness
         self.dispatcher = self.command_surface.dispatcher
         self.projection_surface = ProjectionSurface.build(node=self)
+        self.observability_surface = ObservabilitySurface.build(node=self)
         self.state_projector = self.projection_surface.projector
 
         call_with_callback_group(self.create_subscription, ModeState, '/robot/mode_state', self.on_mode_state, qos_for('mode_state'), callback_group=self.callback_groups.control)
@@ -115,22 +117,23 @@ class RobotWebBridgeNode(Node):
         call_with_callback_group(self.create_subscription, VisionTarget, '/robot/vision/target', self.on_vision_target, qos_for('perception'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, '/robot/vision/qrcode', self.on_qrcode, qos_for('event_log'), callback_group=self.callback_groups.io)
         call_with_callback_group(self.create_subscription, VoiceCommand, '/robot/voice/cmd', self.on_voice_cmd, qos_for('perception'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/voice/ingress_health', self.observability_surface.projector.on_voice_ingress_health, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, Fault, '/robot/fault', self.on_fault, qos_for('fault_event'), callback_group=self.callback_groups.control)
         call_with_callback_group(self.create_subscription, EventLog, '/robot/events', self.on_event_log, qos_for('event_log'), callback_group=self.callback_groups.io)
         call_with_callback_group(self.create_subscription, SystemStatus, '/robot/system_status', self.on_system_status, qos_for('telemetry'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, '/robot/bridge/summary', self.on_bridge_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, '/robot/bridge/transport_stats', self.on_transport_stats, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, '/robot/decision/summary', self.on_decision_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/control/summary', self.on_control_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/monitor/summary', self.on_monitor_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/monitor/diagnostics_json', self.on_monitor_diagnostics_json, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/localization/summary', self.on_localization_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/hardware_interface/summary', self.on_hardware_interface_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/navigation/status', self.on_navigation_status, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
-        call_with_callback_group(self.create_subscription, String, '/robot/runtime/supervision', self.on_runtime_supervision, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/control/summary', self.observability_surface.projector.on_control_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/monitor/summary', self.observability_surface.projector.on_monitor_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/monitor/diagnostics_json', self.observability_surface.projector.on_monitor_diagnostics_json, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/localization/summary', self.observability_surface.projector.on_localization_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/hardware_interface/summary', self.observability_surface.projector.on_hardware_interface_summary, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/navigation/status', self.observability_surface.projector.on_navigation_status, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/runtime/supervision', self.observability_surface.projector.on_runtime_supervision, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
 
         if NavPath is not None:
-            call_with_callback_group(self.create_subscription, NavPath, '/robot/navigation/path', self.on_navigation_path, qos_for('telemetry'), callback_group=self.callback_groups.telemetry)
+            call_with_callback_group(self.create_subscription, NavPath, '/robot/navigation/path', self.observability_surface.projector.on_navigation_path, qos_for('telemetry'), callback_group=self.callback_groups.telemetry)
 
         self.heartbeat_timer = call_with_callback_group(self.create_timer, float(self.get_parameter('heartbeat_period').value), self.publish_heartbeat, callback_group=self.callback_groups.background)
         self.command_timer = call_with_callback_group(self.create_timer, 0.05, self.process_command_queue, callback_group=self.callback_groups.control)
@@ -178,401 +181,32 @@ class RobotWebBridgeNode(Node):
     def connection_payload(self) -> dict[str, Any]:
         return build_connection_payload(self.state)
 
-    @staticmethod
-    def _safe_float(value: Any) -> float | None:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    @staticmethod
-    def _parse_key_value_text(raw: str) -> dict[str, Any]:
-        payload: dict[str, Any] = {}
-        for token in str(raw).split():
-            if '=' not in token:
-                continue
-            key, value = token.split('=', 1)
-            payload[key] = value
-        return payload
-
-    @staticmethod
-    def _safe_json_payload(raw: str) -> Any:
-        try:
-            return json.loads(raw)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return None
-
-    def _build_report_surface_entry(self, key: str, raw: str, *, topic: str) -> dict[str, Any] | None:
-        """Build one typed report-surface entry for frontend and audit consumers.
-
-        Args:
-            key: Logical report key stored in the snapshot surface.
-            raw: Original raw payload received from ROS.
-            topic: Source ROS topic name.
-
-        Returns:
-            Serializable typed report entry for known report keys, otherwise ``None``.
-
-        Raises:
-            None. Invalid JSON is preserved in ``raw`` while the typed payload falls
-            back to a deterministic parse-error shape for the known report kind.
-        """
-        parsed = self._safe_json_payload(raw)
-        entry: dict[str, Any] = {
-            'topic': topic,
-            'raw': raw,
-            'parsed': parsed,
-            'updatedAt': self.now_iso(),
-            'severity': 'info',
-            'summary': topic,
-            'status': 'unknown',
-        }
-        if key == 'controlSummary':
-            if isinstance(parsed, dict):
-                source = str(parsed.get('source', 'idle') or 'idle')
-                safety_reason = str(parsed.get('safety_reason', 'normal') or 'normal')
-                power_reason = str(parsed.get('power_reason', 'normal') or 'normal')
-                arbitration = parsed.get('arbitration', {}) if isinstance(parsed.get('arbitration', {}), dict) else {}
-                blocked = [item for item in arbitration.get('candidates', []) if isinstance(item, dict) and not bool(item.get('selected', False))]
-                entry.update({
-                    'kind': 'control_summary',
-                    'severity': 'error' if bool(parsed.get('safety_latched', False)) else 'warn' if bool(parsed.get('power_limited', False)) else 'success',
-                    'summary': f'control {source}',
-                    'status': source,
-                    'details': {
-                        'winner': source,
-                        'safetyReason': safety_reason,
-                        'powerReason': power_reason,
-                        'selectedAgeSec': parsed.get('selected_age_sec'),
-                        'selectedCommand': {'vx': parsed.get('vx'), 'wz': parsed.get('wz')},
-                        'arbitration': arbitration,
-                        'rejectedCandidates': [
-                            {
-                                'source': item.get('source'),
-                                'reason': item.get('reason'),
-                                'fresh': item.get('fresh'),
-                                'eligible': item.get('eligible'),
-                            }
-                            for item in blocked
-                        ],
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'control_summary',
-                    'severity': 'warn',
-                    'summary': 'control parse_error',
-                    'status': 'parse_error',
-                    'details': {
-                        'winner': 'idle',
-                        'safetyReason': 'parse_error',
-                        'powerReason': 'parse_error',
-                        'selectedAgeSec': None,
-                        'selectedCommand': {},
-                        'arbitration': {'selectedSource': None, 'selectionReason': 'report_parse_error', 'candidates': []},
-                        'rejectedCandidates': [],
-                    },
-                })
-            return entry
-        if key == 'monitorSummary':
-            monitor = self._parse_key_value_text(raw)
-            health = str(monitor.get('health', 'unknown') or 'unknown')
-            readiness = str(monitor.get('readiness', 'unknown') or 'unknown')
-            details = {
-                'health': health,
-                'readiness': readiness,
-                'reason': str(monitor.get('reason', '') or ''),
-                'mode': str(monitor.get('mode', '') or ''),
-                'wifiOk': str(monitor.get('wifi', 'False')).lower() == 'true',
-                'bridgeOk': str(monitor.get('bridge', 'False')).lower() == 'true',
-                'cameraOk': str(monitor.get('camera', 'False')).lower() == 'true',
-                'audioOk': str(monitor.get('audio', 'False')).lower() == 'true',
-                'uartOk': str(monitor.get('uart', 'False')).lower() == 'true',
-                'batteryVoltage': float(str(monitor.get('battery', '0')).rstrip('V') or 0.0) if str(monitor.get('battery', '0')).rstrip('V').replace('.', '', 1).replace('-', '', 1).isdigit() else 0.0,
-                'leftRpm': float(monitor.get('left', 0.0) or 0.0),
-                'rightRpm': float(monitor.get('right', 0.0) or 0.0),
-                'controlSource': str(monitor.get('source', '') or ''),
-                'lastQrcode': str(monitor.get('qrcode', '') or ''),
-                'lastVoiceCommand': str(monitor.get('voice', '') or ''),
-                'lastFault': str(monitor.get('fault', '') or ''),
-                'snapshotCount': int(monitor.get('snaps', 0) or 0),
-                'reconnectCount': int(monitor.get('reconnects', 0) or 0),
-                'protocolErrors': int(monitor.get('proto_err', 0) or 0),
-                'recentSummary': str(monitor.get('recent', '') or ''),
-            }
-            entry.update({
-                'kind': 'monitor_summary',
-                'severity': 'error' if health == 'faulted' else 'warn' if health == 'degraded' or readiness == 'degraded' else 'success' if health == 'good' else 'info',
-                'summary': f'monitor {health}',
-                'status': readiness,
-                'details': details,
-            })
-            return entry
-        if key == 'monitorDiagnostics':
-            if isinstance(parsed, dict):
-                summary_payload = parsed.get('summary', {})
-                if isinstance(summary_payload, list):
-                    statuses = [item for item in summary_payload if isinstance(item, dict)]
-                    system_summary = {}
-                elif isinstance(summary_payload, dict):
-                    statuses = [summary_payload]
-                    system_summary = summary_payload
-                else:
-                    statuses = []
-                    system_summary = {}
-                runtime_supervision = parsed.get('runtimeSupervision', {}) if isinstance(parsed.get('runtimeSupervision', {}), dict) else {}
-                unhealthy = [item for item in statuses if str(item.get('message', '') or '').lower() not in {'ok', 'info'} and str(item.get('health', item.get('level', '')) or '').lower() not in {'ok', 'good', 'info'}]
-                entry.update({
-                    'kind': 'monitor_diagnostics',
-                    'severity': 'error' if runtime_supervision.get('state') in {'faulted', 'unavailable'} else 'warn' if unhealthy else 'success',
-                    'summary': f'diagnostics components={len(statuses)}',
-                    'status': str(runtime_supervision.get('state', 'unknown') or 'unknown'),
-                    'details': {
-                        'componentStatusCount': len(statuses),
-                        'unhealthyCount': len(unhealthy),
-                        'unhealthyComponents': [str(item.get('name', item.get('component', 'unknown')) or 'unknown') for item in unhealthy],
-                        'systemStatus': {
-                            'name': str(system_summary.get('name', '') or ''),
-                            'level': str(system_summary.get('health', system_summary.get('level', '')) or ''),
-                            'message': str(system_summary.get('message', system_summary.get('reason', '')) or ''),
-                        },
-                        'runtimeState': str(runtime_supervision.get('state', 'unknown') or 'unknown'),
-                        'runtimeReasons': runtime_supervision.get('reasons', []) if isinstance(runtime_supervision.get('reasons', []), list) else [],
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'monitor_diagnostics',
-                    'severity': 'warn',
-                    'summary': 'diagnostics parse_error',
-                    'status': 'parse_error',
-                    'details': {
-                        'componentStatusCount': 0,
-                        'unhealthyCount': 0,
-                        'unhealthyComponents': [],
-                        'systemStatus': {'name': '', 'level': 'parse_error', 'message': 'report_parse_error'},
-                        'runtimeState': 'parse_error',
-                        'runtimeReasons': ['report_parse_error'],
-                    },
-                })
-            return entry
-        if key == 'localizationSummary':
-            if isinstance(parsed, dict):
-                stale = bool(parsed.get('stale', False))
-                feedback = bool(parsed.get('feedbackAvailable', False))
-                pose = parsed.get('pose', {}) if isinstance(parsed.get('pose', {}), dict) else {}
-                entry.update({
-                    'kind': 'localization_summary',
-                    'severity': 'warn' if stale or not feedback else 'success',
-                    'summary': 'localization stale' if stale else 'localization ready' if feedback else 'localization waiting',
-                    'status': 'stale' if stale else 'ready' if feedback else 'waiting',
-                    'details': {
-                        'feedbackAvailable': feedback,
-                        'stale': stale,
-                        'pose': pose,
-                        'robotName': parsed.get('robotName'),
-                        'descriptionLoaded': parsed.get('descriptionLoaded'),
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'localization_summary',
-                    'severity': 'warn',
-                    'summary': 'localization parse_error',
-                    'status': 'parse_error',
-                    'details': {
-                        'feedbackAvailable': False,
-                        'stale': True,
-                        'pose': {},
-                        'robotName': None,
-                        'descriptionLoaded': None,
-                    },
-                })
-            return entry
-        if key == 'hardwareInterfaceSummary':
-            if isinstance(parsed, dict):
-                joint_state = bool(parsed.get('jointStateAvailable', False))
-                battery = bool(parsed.get('batteryStateAvailable', False))
-                cmd_observed = bool(parsed.get('cmdObserved', False))
-                missing = [name for name, ok in {'jointState': joint_state, 'batteryState': battery, 'cmdObserved': cmd_observed}.items() if not ok]
-                entry.update({
-                    'kind': 'hardware_interface_summary',
-                    'severity': 'warn' if missing else 'success',
-                    'summary': 'hardware interface ready' if not missing else f'hardware missing={len(missing)}',
-                    'status': 'ready' if not missing else 'partial',
-                    'details': {
-                        'jointStateAvailable': joint_state,
-                        'batteryStateAvailable': battery,
-                        'cmdObserved': cmd_observed,
-                        'batteryPercent': parsed.get('batteryPercent'),
-                        'batteryVoltage': parsed.get('batteryVoltage'),
-                        'missing': missing,
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'hardware_interface_summary',
-                    'severity': 'warn',
-                    'summary': 'hardware interface parse_error',
-                    'status': 'parse_error',
-                    'details': {
-                        'jointStateAvailable': False,
-                        'batteryStateAvailable': False,
-                        'cmdObserved': False,
-                        'batteryPercent': None,
-                        'batteryVoltage': None,
-                        'missing': ['jointState', 'batteryState', 'cmdObserved'],
-                    },
-                })
-            return entry
-        if key == 'navigationStatus':
-            if isinstance(parsed, dict):
-                state = str(parsed.get('state', 'unknown') or 'unknown')
-                route = str(parsed.get('routeName', '') or '')
-                goal = str(parsed.get('goalLabel', parsed.get('goalId', '')) or '')
-                progress = float(parsed.get('progress', 0.0) or 0.0) if str(parsed.get('progress', '') or '').strip() else 0.0
-                entry.update({
-                    'kind': 'navigation_status',
-                    'severity': 'error' if state == 'failed' else 'warn' if state in {'cancelled'} else 'success' if state == 'route_completed' else 'info',
-                    'summary': f'navigation {state}',
-                    'status': state,
-                    'details': {
-                        'routeName': route or None,
-                        'goal': goal or None,
-                        'completedGoals': int(parsed.get('completedGoals', 0) or 0),
-                        'totalGoals': int(parsed.get('totalGoals', 0) or 0),
-                        'progress': progress,
-                        'reason': parsed.get('reason'),
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'navigation_status',
-                    'severity': 'warn',
-                    'summary': 'navigation parse_error',
-                    'status': 'parse_error',
-                    'details': {
-                        'routeName': None,
-                        'goal': None,
-                        'completedGoals': 0,
-                        'totalGoals': 0,
-                        'progress': 0.0,
-                        'reason': 'report_parse_error',
-                    },
-                })
-            return entry
-        if key == 'navigationPath':
-            if isinstance(parsed, dict):
-                entry.update({
-                    'kind': 'navigation_path',
-                    'severity': 'info',
-                    'summary': f"path poses={int(parsed.get('poseCount', 0) or 0)}",
-                    'status': 'available' if bool(parsed.get('hasPath', False)) else 'empty',
-                    'details': {
-                        'poseCount': int(parsed.get('poseCount', 0) or 0),
-                        'hasPath': bool(parsed.get('hasPath', False)),
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'navigation_path',
-                    'severity': 'warn',
-                    'summary': 'navigation path parse_error',
-                    'status': 'parse_error',
-                    'details': {'poseCount': 0, 'hasPath': False},
-                })
-            return entry
-        if key == 'runtimeSupervision':
-            if isinstance(parsed, dict):
-                state = str(parsed.get('state', 'booting') or 'booting')
-                reasons = parsed.get('reasons', []) if isinstance(parsed.get('reasons', []), list) else []
-                lifecycle_manager = parsed.get('lifecycleManager', {}) if isinstance(parsed.get('lifecycleManager', {}), dict) else {}
-                bond_supervision = parsed.get('bondSupervision', {}) if isinstance(parsed.get('bondSupervision', {}), dict) else {}
-                recovery_plan = parsed.get('recoveryPlan', {}) if isinstance(parsed.get('recoveryPlan', {}), dict) else {}
-                entry.update({
-                    'kind': 'runtime_supervision',
-                    'severity': 'error' if state in {'faulted', 'unavailable'} else 'warn' if state == 'degraded' else 'success' if state == 'ready' else 'info',
-                    'summary': f'runtime {state}',
-                    'status': state,
-                    'details': {
-                        'reasons': reasons,
-                        'startupBarrierReady': bool(parsed.get('startupBarrierReady', False)),
-                        'readiness': parsed.get('readiness'),
-                        'recoveryMode': parsed.get('recoveryMode'),
-                        'lifecycleManager': lifecycle_manager,
-                        'bondSupervision': bond_supervision,
-                        'recoveryPlan': recovery_plan,
-                    },
-                })
-            else:
-                entry.update({
-                    'kind': 'runtime_supervision',
-                    'severity': 'warn',
-                    'summary': 'runtime parse_error',
-                    'status': 'parse_error',
-                    'details': {
-                        'reasons': ['report_parse_error'],
-                        'startupBarrierReady': False,
-                        'readiness': 'unknown',
-                        'recoveryMode': None,
-                        'lifecycleManager': {},
-                        'bondSupervision': {},
-                        'recoveryPlan': {'strategy': None, 'reason': 'report_parse_error', 'targetNodes': []},
-                    },
-                })
-            return entry
-        return None
-
-    def _update_report_surface(self, key: str, raw: str, *, topic: str) -> None:
-        entry = self._build_report_surface_entry(key, raw, topic=topic)
-        if entry is None:
-            return
-        def _apply(state: Any) -> None:
-            state.reports[key] = entry
-        self.state_store.mutate(_apply)
-
     def on_control_summary(self, msg: String) -> None:
-        self._update_report_surface('controlSummary', msg.data, topic='/robot/control/summary')
+        self.observability_surface.projector.on_control_summary(msg)
 
     def on_monitor_summary(self, msg: String) -> None:
-        self._update_report_surface('monitorSummary', msg.data, topic='/robot/monitor/summary')
+        self.observability_surface.projector.on_monitor_summary(msg)
 
     def on_monitor_diagnostics_json(self, msg: String) -> None:
-        self._update_report_surface('monitorDiagnostics', msg.data, topic='/robot/monitor/diagnostics_json')
+        self.observability_surface.projector.on_monitor_diagnostics_json(msg)
 
     def on_localization_summary(self, msg: String) -> None:
-        self._update_report_surface('localizationSummary', msg.data, topic='/robot/localization/summary')
+        self.observability_surface.projector.on_localization_summary(msg)
 
     def on_hardware_interface_summary(self, msg: String) -> None:
-        self._update_report_surface('hardwareInterfaceSummary', msg.data, topic='/robot/hardware_interface/summary')
+        self.observability_surface.projector.on_hardware_interface_summary(msg)
 
     def on_navigation_status(self, msg: String) -> None:
-        self._update_report_surface('navigationStatus', msg.data, topic='/robot/navigation/status')
+        self.observability_surface.projector.on_navigation_status(msg)
+
+    def on_voice_ingress_health(self, msg: String) -> None:
+        self.observability_surface.projector.on_voice_ingress_health(msg)
 
     def on_runtime_supervision(self, msg: String) -> None:
-        self._update_report_surface('runtimeSupervision', msg.data, topic='/robot/runtime/supervision')
+        self.observability_surface.projector.on_runtime_supervision(msg)
 
     def on_navigation_path(self, msg: Any) -> None:
-        poses = list(getattr(msg, 'poses', []) or [])
-        frame_id = str(getattr(getattr(msg, 'header', None), 'frame_id', '') or '')
-        payload = {
-            'poseCount': len(poses),
-            'frameId': frame_id or None,
-            'hasPath': bool(poses),
-        }
-        if poses:
-            first = poses[0]
-            last = poses[-1]
-            payload['start'] = {
-                'x': float(getattr(getattr(getattr(first, 'pose', None), 'position', None), 'x', 0.0) or 0.0),
-                'y': float(getattr(getattr(getattr(first, 'pose', None), 'position', None), 'y', 0.0) or 0.0),
-            }
-            payload['goal'] = {
-                'x': float(getattr(getattr(getattr(last, 'pose', None), 'position', None), 'x', 0.0) or 0.0),
-                'y': float(getattr(getattr(getattr(last, 'pose', None), 'position', None), 'y', 0.0) or 0.0),
-            }
-        self._update_report_surface('navigationPath', json.dumps(payload, ensure_ascii=False, separators=(',', ':')), topic='/robot/navigation/path')
-
+        self.observability_surface.projector.on_navigation_path(msg)
 
     def resolve_gateway_session_policy(self, metadata: Mapping[str, Any]) -> Mapping[str, Any]:
         """Resolve one websocket client into a permanently read-only bridge session.

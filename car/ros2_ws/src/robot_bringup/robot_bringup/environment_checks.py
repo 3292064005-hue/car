@@ -15,6 +15,7 @@ from typing import Any
 from robot_utils.versioning import compare_version_tuples, parse_version_tuple, satisfies_engine_expression
 
 from robot_bringup.dependency_matrix import SurfaceName, dependency_plan_for
+from robot_bringup.launch_profiles import get_launch_profile
 
 _FRONTEND_PACKAGE_JSON = Path(__file__).resolve().parents[4] / 'robot_frontend' / 'package.json'
 
@@ -166,6 +167,29 @@ def install_tree_status(repo_root: Path | str) -> dict[str, object]:
     return {'status': 'valid_minimal', 'setup_path': str(setup_path), 'detail': 'setup.bash contains explicit shell exports but no discovered local_setup/ament index'}
 
 
+
+def _install_tree_status_ok_for_profile(status: str, *, profile_name: str, config_path: str | None = None) -> bool:
+    """Return whether one install-tree status is acceptable for the profile.
+
+    Args:
+        status: Install-tree status emitted by :func:`install_tree_status`.
+        profile_name: Effective launch profile name.
+        config_path: Optional bringup config root or profiles path.
+
+    Returns:
+        ``True`` when the status is acceptable for the requested profile.
+
+    Raises:
+        None.
+    """
+    if status == 'valid':
+        return True
+    if status != 'valid_minimal':
+        return False
+    profile = get_launch_profile(profile_name, config_path=config_path)
+    return profile.use_mock_robot or profile.name in {'minimal', 'mock', 'dev'}
+
+
 def actual_environment() -> dict[str, object]:
     os_release = _read_os_release()
     return {
@@ -210,7 +234,7 @@ def _check_executable(name: str) -> dict[str, object]:
     return {'name': name, 'ok': bool(path), 'detail': path or 'not found'}
 
 
-def _check_workspace_asset(repo_root: Path, asset_key: str) -> dict[str, object]:
+def _check_workspace_asset(repo_root: Path, asset_key: str, *, profile_name: str = 'full', config_path: str | None = None) -> dict[str, object]:
     description, relative_path = WORKSPACE_ASSET_REGISTRY[asset_key]
     target = repo_root / relative_path
     if asset_key == 'ros2_install_setup_exists':
@@ -218,7 +242,7 @@ def _check_workspace_asset(repo_root: Path, asset_key: str) -> dict[str, object]
         ok = install_status['status'] in {'valid', 'valid_minimal'}
         return {
             'name': asset_key,
-            'ok': ok,
+            'ok': _install_tree_status_ok_for_profile(install_status['status'], profile_name=profile_name, config_path=config_path),
             'detail': str(install_status['detail']),
             'description': description,
             'install_tree_status': install_status['status'],
@@ -247,9 +271,9 @@ def build_environment_report(
     optional_executables = [_check_executable(name) for name in plan.optional_executables]
     startup_required_modules = [_check_module(name) for name in plan.startup_required_modules]
     startup_required_executables = [_check_executable(name) for name in plan.startup_required_executables]
-    required_assets = [_check_workspace_asset(root, key) for key in plan.required_workspace_assets]
-    optional_assets = [_check_workspace_asset(root, key) for key in plan.optional_workspace_assets]
-    startup_required_assets = [_check_workspace_asset(root, key) for key in plan.startup_required_assets]
+    required_assets = [_check_workspace_asset(root, key, profile_name=profile_name, config_path=config_path) for key in plan.required_workspace_assets]
+    optional_assets = [_check_workspace_asset(root, key, profile_name=profile_name, config_path=config_path) for key in plan.optional_workspace_assets]
+    startup_required_assets = [_check_workspace_asset(root, key, profile_name=profile_name, config_path=config_path) for key in plan.startup_required_assets]
     constraints = environment_constraints_satisfied(actual_env)
     install_status = install_tree_status(root)
     report = {
@@ -275,7 +299,7 @@ def build_environment_report(
     }
     for key, (_description, relative_path) in WORKSPACE_ASSET_REGISTRY.items():
         if key == 'ros2_install_setup_exists':
-            report[key] = install_status['status'] in {'valid', 'valid_minimal'}
+            report[key] = _install_tree_status_ok_for_profile(install_status['status'], profile_name=profile_name, config_path=config_path)
         else:
             report[key] = bool((root / relative_path).exists())
     required_ok = (

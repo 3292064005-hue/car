@@ -404,8 +404,6 @@ class DecisionAppService:
 
     def _handle_tick_tasks_now(self) -> None:
         plan: MissionTickPlan = self._mission_orchestrator.tick_tasks()
-        if plan.patrol_cmd is not None:
-            self._side_effects.publish_patrol_cmd(plan.patrol_cmd)
         if plan.track_cmd is not None:
             self._side_effects.publish_track_cmd(plan.track_cmd)
         self._side_effects.emit_effect_plan(plan.effect_plan)

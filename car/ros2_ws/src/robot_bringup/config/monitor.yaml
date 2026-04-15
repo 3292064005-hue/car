@@ -11,3 +11,4 @@ robot_monitor:
     evidence_index_auto_flush_every: 8
     diagnostics_enabled: true
     lifecycle_manager_status_topic: /robot/lifecycle_manager/status
+    voice_ingress_health_topic: /robot/voice/ingress_health

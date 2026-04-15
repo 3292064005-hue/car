@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from geometry_msgs.msg import Twist
 from std_msgs.msg import Bool, String
 
 from robot_contracts.runtime_param_transport import dumps_runtime_param_apply_result
@@ -66,8 +65,6 @@ class DecisionSideEffects:
     def publish_speak(self, text: str, priority: int, *, source: str = 'decision') -> None:
         self._safe_publish(getattr(self._node, 'speak_pub', None), make_speak(text, priority, source), label='speak')
 
-    def publish_patrol_cmd(self, cmd: Twist) -> None:
-        self._safe_publish(getattr(self._node, 'patrol_pub', None), cmd, label='patrol_cmd')
 
     def publish_track_cmd(self, cmd: Twist) -> None:
         self._safe_publish(getattr(self._node, 'track_pub', None), cmd, label='track_cmd')

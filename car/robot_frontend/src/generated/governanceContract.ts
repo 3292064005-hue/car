@@ -1,0 +1,776 @@
+import { z } from 'zod';
+
+        export const laneRegistry = {
+  "navigation.simple_nav_provider": {
+    "laneId": "navigation.simple_nav_provider",
+    "domain": "navigation",
+    "owner": "robot_navigation",
+    "packageName": "robot_navigation",
+    "executable": "navigation_node",
+    "childFactory": "robot_navigation.navigation_node:RobotNavigationNode",
+    "activationDecision": "activate",
+    "rollbackPolicy": "baseline_runtime_remains_default",
+    "evidenceRequired": [
+      "host_harness_smoke"
+    ],
+    "upgradeCondition": "mainline_baseline_provider_already_supported",
+    "description": "Baseline waypoint navigation runtime hosted in robot_navigation.",
+    "visibility": "public"
+  },
+  "navigation.nav2_provider": {
+    "laneId": "navigation.nav2_provider",
+    "domain": "navigation",
+    "owner": "robot_nav2_adapter",
+    "packageName": "robot_nav2_adapter",
+    "executable": "nav2_adapter_node",
+    "childFactory": "robot_nav2_adapter.nav2_adapter_node:Nav2AdapterNode",
+    "activationDecision": "activate",
+    "rollbackPolicy": "switch_provider_name_back_to_simple_nav_provider",
+    "evidenceRequired": [
+      "adapter_smoke",
+      "provider_switch_smoke"
+    ],
+    "upgradeCondition": "separate adapter package installed and provider smoke passing",
+    "description": "Separate navigation adapter lane that isolates experimental Nav2-oriented integration from the baseline provider.",
+    "visibility": "experimental"
+  },
+  "hardware.ros_projection_only": {
+    "laneId": "hardware.ros_projection_only",
+    "domain": "hardware",
+    "owner": "robot_hardware_interface",
+    "packageName": "robot_hardware_interface",
+    "executable": "hardware_interface_node",
+    "childFactory": "robot_hardware_interface.hardware_interface_node:RobotHardwareInterfaceNode",
+    "activationDecision": "activate",
+    "rollbackPolicy": "keep_projection_surface_as_default",
+    "evidenceRequired": [
+      "host_harness_smoke"
+    ],
+    "upgradeCondition": "not_applicable_projection_surface_is_mainline_default",
+    "description": "Projection-only hardware compatibility surface.",
+    "visibility": "public"
+  },
+  "hardware.direct_driver": {
+    "laneId": "hardware.direct_driver",
+    "domain": "hardware",
+    "owner": "robot_direct_driver",
+    "packageName": "robot_direct_driver",
+    "executable": "direct_driver_node",
+    "childFactory": "robot_direct_driver.direct_driver_node:DirectDriverNode",
+    "activationDecision": "activate",
+    "rollbackPolicy": "switch_compatibility_surface_role_to_ros_projection_only",
+    "evidenceRequired": [
+      "target_environment_acceptance"
+    ],
+    "upgradeCondition": "separate driver lane package installed with acceptance artifact and profile smoke passing",
+    "description": "Dedicated direct-driver lane that owns command/state authority inside a separate package.",
+    "visibility": "experimental"
+  },
+  "bridge_runtime.split_runtime": {
+    "laneId": "bridge_runtime.split_runtime",
+    "domain": "bridge_runtime",
+    "owner": "robot_bridge",
+    "packageName": "robot_bridge",
+    "executable": "bridge_transport_node",
+    "childFactory": "robot_bridge.bridge_transport_node:BridgeTransportNode",
+    "activationDecision": "activate",
+    "rollbackPolicy": "fall_back_to_legacy_monolith_only_via_explicit_rollback_gate",
+    "evidenceRequired": [
+      "runtime_smoke"
+    ],
+    "upgradeCondition": "mainline_default_runtime",
+    "description": "Mainline split bridge runtime topology.",
+    "visibility": "public"
+  },
+  "bridge_runtime.legacy_monolith": {
+    "laneId": "bridge_runtime.legacy_monolith",
+    "domain": "bridge_runtime",
+    "owner": "robot_bridge",
+    "packageName": "robot_bridge",
+    "executable": "bridge_node",
+    "childFactory": "robot_bridge.bridge_node:BridgeNode",
+    "activationDecision": "rollback_only",
+    "rollbackPolicy": "must_be_explicitly_enabled_by_allow_legacy_bridge_runtime",
+    "evidenceRequired": [
+      "legacy_runtime_smoke"
+    ],
+    "upgradeCondition": "kept_only_for_controlled_rollback",
+    "description": "Legacy monolithic bridge runtime kept behind an explicit rollback gate.",
+    "visibility": "experimental"
+  }
+} as const;
+        export const signalRegistry = {
+  "topics": {
+    "/robot/lifecycle_manager/status": {
+      "kind": "topic",
+      "producer": "robot_lifecycle_manager",
+      "runtimeConsumers": [
+        "robot_monitor"
+      ],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "startup_barrier"
+      ],
+      "ackOwners": [],
+      "notes": "Lifecycle status is consumed at runtime and surfaced in evidence/reporting."
+    },
+    "/robot/lifecycle_manager/ready": {
+      "kind": "topic",
+      "producer": "robot_lifecycle_manager",
+      "runtimeConsumers": [
+        "startup_barrier"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [],
+      "ackOwners": [],
+      "notes": "Lifecycle readiness gates startup barrier only."
+    },
+    "/robot/bridge/summary": {
+      "kind": "topic",
+      "producer": "robot_bridge_or_robot_direct_driver",
+      "runtimeConsumers": [
+        "robot_monitor",
+        "robot_web_bridge"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "probe_real_board_acceptance"
+      ],
+      "ackOwners": [],
+      "notes": "Bridge summary feeds readiness, staleness and evidence logic."
+    },
+    "/robot/bridge/transport_stats": {
+      "kind": "topic",
+      "producer": "robot_bridge",
+      "runtimeConsumers": [
+        "robot_web_bridge"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [],
+      "ackOwners": [],
+      "notes": "Detailed transport statistics are optional runtime telemetry."
+    },
+    "/robot/decision/summary": {
+      "kind": "topic",
+      "producer": "robot_decision",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_voice"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "startup_barrier"
+      ],
+      "ackOwners": [],
+      "notes": "Decision summary is the authoritative mode/task projection."
+    },
+    "/robot/runtime/supervision": {
+      "kind": "topic",
+      "producer": "robot_monitor",
+      "runtimeConsumers": [
+        "robot_decision",
+        "robot_web_bridge"
+      ],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "preflight_environment_check"
+      ],
+      "ackOwners": [],
+      "notes": "Runtime supervision is both runtime-consumed and operator-visible."
+    },
+    "/robot/web_bridge/ready": {
+      "kind": "topic",
+      "producer": "robot_web_bridge",
+      "runtimeConsumers": [
+        "startup_barrier"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "run_integrated_frontend_bridge_smoke"
+      ],
+      "ackOwners": [],
+      "notes": "Gateway-ready topic remains a startup gate and smoke-evidence signal."
+    },
+    "/robot/control/summary": {
+      "kind": "topic",
+      "producer": "robot_control",
+      "runtimeConsumers": [
+        "robot_monitor"
+      ],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_control_summary_report"
+      ],
+      "ackOwners": [],
+      "notes": "Control summary governs runtime/operator visibility of arbitration outcomes."
+    },
+    "/robot/monitor/summary": {
+      "kind": "topic",
+      "producer": "robot_monitor",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_monitor_summary_report"
+      ],
+      "ackOwners": [],
+      "notes": "Monitor summary is observability-only telemetry."
+    },
+    "/robot/monitor/diagnostics_json": {
+      "kind": "topic",
+      "producer": "robot_monitor",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_monitor_diagnostics_report"
+      ],
+      "ackOwners": [],
+      "notes": "Diagnostics export is evidence/UI only."
+    },
+    "/robot/navigation/status": {
+      "kind": "topic",
+      "producer": "robot_navigation_or_robot_nav2_adapter",
+      "runtimeConsumers": [
+        "robot_decision",
+        "robot_web_bridge"
+      ],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_runtime_signal_matrix_report"
+      ],
+      "ackOwners": [],
+      "notes": "Navigation lifecycle/status surface shared by both provider lanes."
+    },
+    "/robot/navigation/path": {
+      "kind": "topic",
+      "producer": "robot_navigation_or_robot_nav2_adapter",
+      "runtimeConsumers": [
+        "robot_web_bridge"
+      ],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_runtime_signal_matrix_report"
+      ],
+      "ackOwners": [],
+      "notes": "Navigation path preview surface shared by both provider lanes."
+    },
+    "/robot/hardware_interface/summary": {
+      "kind": "topic",
+      "producer": "robot_hardware_interface_or_robot_direct_driver",
+      "runtimeConsumers": [
+        "robot_web_bridge"
+      ],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_runtime_signal_matrix_report"
+      ],
+      "ackOwners": [],
+      "notes": "Hardware boundary summary shared by projection and direct-driver lanes."
+    }
+  },
+  "commands": {
+    "set_mode": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_decision"
+      ],
+      "uiConsumers": [
+        "ModePanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_decision"
+      ],
+      "notes": "Mode transitions are authorized by robot_decision."
+    },
+    "teleop_cmd": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_control"
+      ],
+      "uiConsumers": [
+        "TeleopPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_control"
+      ],
+      "notes": "Teleop commands are ultimately accepted by control arbitration."
+    },
+    "stop_now": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_control"
+      ],
+      "uiConsumers": [
+        "TeleopPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_control"
+      ],
+      "notes": "Stop-now is a control-owned command."
+    },
+    "estop": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_control"
+      ],
+      "uiConsumers": [
+        "FaultPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_control"
+      ],
+      "notes": "Emergency stop is latched by control."
+    },
+    "resume_from_safe_stop": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_decision"
+      ],
+      "uiConsumers": [
+        "FaultPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_decision"
+      ],
+      "notes": "Safe-stop recovery is governed by decision policy."
+    },
+    "start_patrol": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_decision",
+        "robot_navigation_or_robot_nav2_adapter"
+      ],
+      "uiConsumers": [
+        "PatrolPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_decision"
+      ],
+      "notes": "Decision orchestrates patrol start and navigation intent emission."
+    },
+    "pause_patrol": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_decision"
+      ],
+      "uiConsumers": [
+        "PatrolPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_decision"
+      ],
+      "notes": "Patrol pause is coordinated by decision."
+    },
+    "stop_patrol": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_decision"
+      ],
+      "uiConsumers": [
+        "PatrolPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_decision"
+      ],
+      "notes": "Patrol stop is coordinated by decision."
+    },
+    "apply_param_draft": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_control",
+        "robot_decision",
+        "robot_monitor"
+      ],
+      "uiConsumers": [
+        "ParamPanel"
+      ],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [
+        "robot_control",
+        "robot_decision",
+        "robot_monitor"
+      ],
+      "notes": "Runtime parameter commits aggregate authoritative consumer ACKs only."
+    },
+    "apply_param_profile": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_control",
+        "robot_decision",
+        "robot_monitor"
+      ],
+      "uiConsumers": [
+        "ParamPanel"
+      ],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [
+        "robot_control",
+        "robot_decision",
+        "robot_monitor"
+      ],
+      "notes": "Runtime parameter profiles aggregate authoritative consumer ACKs only."
+    },
+    "speak_fixed_text": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_voice"
+      ],
+      "uiConsumers": [
+        "VoicePanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_voice"
+      ],
+      "notes": "Voice subsystem is authoritative for canned speech."
+    },
+    "reset_fault": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_decision",
+        "robot_control"
+      ],
+      "uiConsumers": [
+        "FaultPanel"
+      ],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_decision",
+        "robot_control"
+      ],
+      "notes": "Fault reset requires coordinated decision/control handling."
+    },
+    "save_snapshot": {
+      "kind": "command",
+      "producer": "robot_frontend_or_api_server",
+      "runtimeConsumers": [
+        "robot_web_bridge",
+        "robot_vision"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "render_command_audit_report"
+      ],
+      "ackOwners": [
+        "robot_vision"
+      ],
+      "notes": "Snapshot capture is handled by the vision subsystem."
+    }
+  },
+  "runtimeParameters": {
+    "maxLinearSpeed": {
+      "kind": "runtime_parameter",
+      "producer": "robot_frontend",
+      "scope": "backend_authoritative",
+      "runtimeConsumers": [
+        "robot_control",
+        "robot_decision"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [
+        "robot_control",
+        "robot_decision"
+      ],
+      "notes": "control and decision consume the authoritative linear speed limit."
+    },
+    "maxAngularSpeed": {
+      "kind": "runtime_parameter",
+      "producer": "robot_frontend",
+      "scope": "backend_authoritative",
+      "runtimeConsumers": [
+        "robot_control",
+        "robot_decision"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [
+        "robot_control",
+        "robot_decision"
+      ],
+      "notes": "control and decision consume the authoritative angular speed limit."
+    },
+    "teleopStep": {
+      "kind": "runtime_parameter",
+      "producer": "robot_frontend",
+      "scope": "frontend_local",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ParamPanel"
+      ],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [],
+      "notes": "browser-local teleop increment used by operator UI only."
+    },
+    "trackOffsetDeadband": {
+      "kind": "runtime_parameter",
+      "producer": "robot_frontend",
+      "scope": "backend_authoritative",
+      "runtimeConsumers": [
+        "robot_decision"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [
+        "robot_decision"
+      ],
+      "notes": "decision tracking controller consumes the authoritative offset deadband."
+    },
+    "lowPowerThreshold": {
+      "kind": "runtime_parameter",
+      "producer": "robot_frontend",
+      "scope": "backend_authoritative",
+      "runtimeConsumers": [
+        "robot_monitor"
+      ],
+      "uiConsumers": [],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [
+        "robot_monitor"
+      ],
+      "notes": "monitor readiness and low-power supervision consume the authoritative threshold."
+    },
+    "reconnectTimeoutMs": {
+      "kind": "runtime_parameter",
+      "producer": "robot_frontend",
+      "scope": "frontend_local",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ParamPanel"
+      ],
+      "evidenceConsumers": [
+        "render_parameter_schema_report"
+      ],
+      "ackOwners": [],
+      "notes": "browser-local reconnect/watchdog timeout used by frontend transport tick only."
+    }
+  },
+  "reports": {
+    "control_summary": {
+      "kind": "report",
+      "producer": "render_control_summary_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_acceptance_report",
+        "render_release_quality_manifest"
+      ],
+      "ackOwners": [],
+      "notes": "Control summary report is exported for operator review and release evidence."
+    },
+    "monitor_summary": {
+      "kind": "report",
+      "producer": "render_monitor_summary_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_acceptance_report",
+        "render_release_quality_manifest"
+      ],
+      "ackOwners": [],
+      "notes": "Monitor summary report remains evidence/UI only."
+    },
+    "monitor_diagnostics": {
+      "kind": "report",
+      "producer": "render_monitor_diagnostics_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_acceptance_report"
+      ],
+      "ackOwners": [],
+      "notes": "Diagnostics report is evidence/UI only."
+    },
+    "localization_summary": {
+      "kind": "report",
+      "producer": "render_runtime_signal_matrix_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_release_quality_manifest"
+      ],
+      "ackOwners": [],
+      "notes": "Localization summary is exported from runtime snapshots."
+    },
+    "hardware_interface_summary": {
+      "kind": "report",
+      "producer": "render_runtime_signal_matrix_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_release_quality_manifest"
+      ],
+      "ackOwners": [],
+      "notes": "Hardware summary is exported from runtime snapshots."
+    },
+    "navigation_status": {
+      "kind": "report",
+      "producer": "render_runtime_signal_matrix_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_release_quality_manifest"
+      ],
+      "ackOwners": [],
+      "notes": "Navigation status report is exported from runtime snapshots."
+    },
+    "navigation_path": {
+      "kind": "report",
+      "producer": "render_runtime_signal_matrix_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_release_quality_manifest"
+      ],
+      "ackOwners": [],
+      "notes": "Navigation path report is exported from runtime snapshots."
+    },
+    "runtime_supervision": {
+      "kind": "report",
+      "producer": "render_runtime_signal_matrix_report",
+      "runtimeConsumers": [],
+      "uiConsumers": [
+        "ReportSummaryPanel"
+      ],
+      "evidenceConsumers": [
+        "render_release_quality_manifest",
+        "render_acceptance_report"
+      ],
+      "ackOwners": [],
+      "notes": "Runtime supervision report is consumed by acceptance/release gates."
+    }
+  },
+  "validationErrors": []
+} as const;
+
+        export const laneRegistrySchema = z.record(z.string(), z.object({
+          laneId: z.string(),
+          domain: z.string(),
+          owner: z.string(),
+          packageName: z.string(),
+          executable: z.string(),
+          childFactory: z.string(),
+          activationDecision: z.string(),
+          rollbackPolicy: z.string(),
+          evidenceRequired: z.array(z.string()),
+          upgradeCondition: z.string(),
+          description: z.string(),
+          visibility: z.string(),
+        }));
+
+        export const governanceSignalEntrySchema = z.object({
+          kind: z.string(),
+          producer: z.string(),
+          runtimeConsumers: z.array(z.string()).optional(),
+          uiConsumers: z.array(z.string()).optional(),
+          evidenceConsumers: z.array(z.string()).optional(),
+          ackOwners: z.array(z.string()).optional(),
+          notes: z.string().optional(),
+          scope: z.string().optional(),
+        });
+
+        export const governanceSignalRegistrySchema = z.object({
+          topics: z.record(z.string(), governanceSignalEntrySchema),
+          commands: z.record(z.string(), governanceSignalEntrySchema),
+          runtimeParameters: z.record(z.string(), governanceSignalEntrySchema),
+          reports: z.record(z.string(), governanceSignalEntrySchema),
+          validationErrors: z.array(z.string()),
+        });
+
+        export type GeneratedLaneRegistry = typeof laneRegistry;
+        export type GeneratedSignalRegistry = typeof signalRegistry;

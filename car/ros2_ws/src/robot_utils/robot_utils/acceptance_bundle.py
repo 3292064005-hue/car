@@ -145,6 +145,81 @@ def validate_acceptance_artifact(
     return ValidationResult(len(errors) == 0, tuple(errors), normalized)
 
 
+
+def validate_target_environment_acceptance(
+    payload: Mapping[str, Any] | None,
+    *,
+    repo_root: str | Path,
+    config_path: str | Path | None = None,
+) -> ValidationResult:
+    """Validate a target-environment acceptance artifact against final-delivery rules.
+
+    The target-environment artifact is the strongest repository-local evidence for
+    direct board-execution claims. Runtime boundary reports and final delivery
+    gates must therefore share the same validation logic instead of maintaining
+    separate weak/strong schema branches.
+
+    Args:
+        payload: Candidate artifact mapping.
+        repo_root: Repository root used to compute the reference identity.
+        config_path: Optional config root override used when building the
+            reference verification identity.
+
+    Returns:
+        Validation result containing the normalized payload and any validation
+        errors that block target-environment acceptance claims.
+    """
+    base = validate_acceptance_artifact(
+        payload,
+        expected_type='target_environment_acceptance',
+        require_hardware_identity=False,
+        require_firmware_identity=False,
+    )
+    if not base.valid:
+        return base
+
+    normalized = dict(base.normalized)
+    errors = list(base.errors)
+    verification = normalized.get('verificationIdentity', {}) if isinstance(normalized.get('verificationIdentity', {}), Mapping) else {}
+    reference_identity = build_verification_identity(
+        repo_root=repo_root,
+        config_path=config_path,
+        profile_name=str(verification.get('profileName', '') or 'target_acceptance'),
+        hardware_identity={},
+        firmware_identity={},
+    )
+    reference_ok, reference_errors = acceptance_identity_matches_reference(
+        normalized,
+        reference_identity=reference_identity,
+        require_hardware_identity=False,
+        require_firmware_identity=False,
+    )
+    if not reference_ok:
+        errors.extend(reference_errors)
+
+    evidence_class = normalized.get('evidenceClass', {}) if isinstance(normalized.get('evidenceClass', {}), Mapping) else {}
+    if str(evidence_class.get('key', '') or '') != 'hardware_in_loop':
+        errors.append('target_environment_evidence_class_not_hardware_in_loop')
+
+    runtime = normalized.get('runtime', {}) if isinstance(normalized.get('runtime', {}), Mapping) else {}
+    ros2_info = runtime.get('ros2', {}) if isinstance(runtime.get('ros2', {}), Mapping) else {}
+    verification_coverage = normalized.get('verificationCoverage', {}) if isinstance(normalized.get('verificationCoverage', {}), Mapping) else {}
+    if str(normalized.get('status', '') or '') != 'target_environment_accepted':
+        errors.append('target_environment_status_not_accepted')
+    if not bool(verification_coverage.get('hostHarnessVerified', False)):
+        errors.append('target_environment_host_harness_not_verified')
+    if not bool(verification_coverage.get('realBoardObserved', False)):
+        errors.append('target_environment_real_board_not_observed')
+    if not bool(verification_coverage.get('hardwareInLoopVerified', False)):
+        errors.append('target_environment_hardware_in_loop_not_verified')
+    if not bool(runtime.get('rclpyAvailable', False)):
+        errors.append('target_environment_rclpy_unavailable')
+    if not bool(ros2_info.get('available', False)):
+        errors.append('target_environment_ros2_unavailable')
+
+    return ValidationResult(len(errors) == 0, tuple(errors), normalized)
+
+
 def acceptance_identity_match(*artifacts: Mapping[str, Any]) -> tuple[bool, list[str]]:
     identities = []
     for payload in artifacts:

@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[3]
 def test_ci_workflow_contains_frontend_e2e_gate() -> None:
     workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
     assert 'Frontend E2E' in workflow
-    assert 'npm --prefix robot_frontend run test:e2e:ci' in workflow
+    assert 'python3 scripts/run_frontend_workspace_command.py -- npm run test:e2e:ci' in workflow
 
 
 def test_ci_workflow_uses_ubuntu_22_04_for_verify_job() -> None:
@@ -23,24 +23,24 @@ def test_ci_workflow_contains_mock_system_web_bridge_smoke() -> None:
     assert '--expected-node /robot_web_bridge' in workflow
 
 
-def test_ci_workflow_installs_playwright_browsers() -> None:
+def test_ci_workflow_installs_playwright_browsers_in_isolated_workspace() -> None:
     workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
-    assert 'Install Playwright browsers' in workflow
-    assert 'npm --prefix robot_frontend exec playwright install --with-deps chromium' in workflow
+    assert 'Install Playwright browsers (isolated workspace)' in workflow
+    assert 'python3 scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium' in workflow
 
 
 def test_ci_workflow_contains_integrated_frontend_bridge_job() -> None:
     workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
     assert 'integrated_frontend_bridge_smoke:' in workflow
     assert 'Integrated frontend + web bridge smoke' in workflow
-    assert 'python3 scripts/run_integrated_frontend_bridge_smoke.py' in workflow
+    assert './scripts/run_release_verification.sh --with-integrated-frontend-smoke --skip-npm-ci' in workflow
 
 
 def test_ci_workflow_contains_target_environment_acceptance_job() -> None:
     workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
     assert 'target_environment_acceptance:' in workflow
-    assert 'Target environment acceptance' in workflow
-    assert './scripts/run_target_environment_acceptance.sh --output /tmp/target_environment_acceptance.json' in workflow
+    assert 'Target environment acceptance capture' in workflow
+    assert './scripts/run_target_environment_acceptance.sh --allow-incomplete --output /tmp/target_environment_acceptance.json' in workflow
 
 
 def test_ci_workflow_each_job_checks_out_repo() -> None:
@@ -48,10 +48,12 @@ def test_ci_workflow_each_job_checks_out_repo() -> None:
     assert workflow.count('uses: actions/checkout@v4') >= 5
 
 
-def test_ci_workflow_frontend_jobs_setup_node_and_install_dependencies() -> None:
+def test_ci_workflow_frontend_jobs_use_isolated_frontend_workspace_and_clean_gates() -> None:
     workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
     assert 'uses: actions/setup-node@v4' in workflow
-    assert 'npm --prefix robot_frontend ci' in workflow
+    assert 'Clean source tree gate (pre-frontend)' in workflow
+    assert 'Clean source tree gate (post-frontend)' in workflow
+    assert 'npm --prefix robot_frontend ci' not in workflow
 
 
 def test_ci_workflow_python_jobs_setup_python() -> None:

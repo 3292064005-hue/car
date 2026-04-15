@@ -24,4 +24,16 @@ def test_frontend_schema_uses_generated_transport_schemas_and_shared_constants()
     assert 'schemaVersion: z.string().default(SCHEMA_VERSION)' in text
     assert 'inboundPayloadSchemas' in text
     assert 'outboundPayloadSchemas' in text
-    assert 'legacyPayloadSchemas' in text
+    assert 'legacyPayloadSchemas' not in text
+    assert "compatibilityMode: 'native-v4'" in text
+
+
+def test_frontend_generated_contract_exports_runtime_param_scope_and_ready_fields() -> None:
+    text = (ROOT / 'robot_frontend' / 'src' / 'generated' / 'bridgeContract.ts').read_text(encoding='utf-8')
+    assert 'RUNTIME_PARAM_FIELD_SCOPES' in text
+    assert 'RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS' in text
+    assert 'RUNTIME_PARAM_FRONTEND_LOCAL_KEYS' in text
+    assert 'runtimeParamPatchSchema' in text
+    assert 'gatewayReady' in text
+    assert 'operatorSurfaceReady' in text
+    assert 'commandLinkReady' in text

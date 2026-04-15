@@ -8,6 +8,9 @@ from typing import Any, Mapping
 
 from robot_contracts.contract_versions import now_iso
 
+RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE = 'backend_authoritative'
+RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL = 'frontend_local'
+
 RUNTIME_PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     'maxLinearSpeed': {'default': 0.45, 'min': 0.0, 'max': 1.5, 'type': float},
     'maxAngularSpeed': {'default': 1.1, 'min': 0.0, 'max': 3.5, 'type': float},
@@ -16,6 +19,52 @@ RUNTIME_PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     'lowPowerThreshold': {'default': 25, 'min': 0, 'max': 100, 'type': int},
     'reconnectTimeoutMs': {'default': 1500, 'min': 250, 'max': 10_000, 'type': int},
 }
+
+RUNTIME_PARAM_FIELD_CONTRACTS: dict[str, dict[str, Any]] = {
+    'maxLinearSpeed': {
+        'scope': RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,
+        'consumers': ('robot_control', 'robot_decision'),
+        'ackOwners': ('robot_control', 'robot_decision'),
+        'notes': 'control and decision consume the authoritative linear speed limit.',
+    },
+    'maxAngularSpeed': {
+        'scope': RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,
+        'consumers': ('robot_control', 'robot_decision'),
+        'ackOwners': ('robot_control', 'robot_decision'),
+        'notes': 'control and decision consume the authoritative angular speed limit.',
+    },
+    'teleopStep': {
+        'scope': RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL,
+        'consumers': ('robot_frontend',),
+        'ackOwners': (),
+        'notes': 'browser-local teleop increment used by operator UI only.',
+    },
+    'trackOffsetDeadband': {
+        'scope': RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,
+        'consumers': ('robot_decision',),
+        'ackOwners': ('robot_decision',),
+        'notes': 'decision tracking controller consumes the authoritative offset deadband.',
+    },
+    'lowPowerThreshold': {
+        'scope': RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,
+        'consumers': ('robot_monitor',),
+        'ackOwners': ('robot_monitor',),
+        'notes': 'monitor readiness and low-power supervision consume the authoritative threshold.',
+    },
+    'reconnectTimeoutMs': {
+        'scope': RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL,
+        'consumers': ('robot_frontend',),
+        'ackOwners': (),
+        'notes': 'browser-local reconnect/watchdog timeout used by frontend transport tick only.',
+    },
+}
+
+RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS: tuple[str, ...] = tuple(
+    key for key, contract in RUNTIME_PARAM_FIELD_CONTRACTS.items() if contract['scope'] == RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE
+)
+RUNTIME_PARAM_FRONTEND_LOCAL_KEYS: tuple[str, ...] = tuple(
+    key for key, contract in RUNTIME_PARAM_FIELD_CONTRACTS.items() if contract['scope'] == RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL
+)
 
 RUNTIME_PARAM_PROFILES: dict[str, dict[str, Any]] = {
     '室内保守': {
@@ -53,6 +102,35 @@ class RuntimeParameterError(ValueError):
     """Raised when a runtime parameter update fails validation."""
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeParameterPatchDetail:
+    """Detailed classification for one runtime-parameter mutation request.
+
+    Args:
+        next_params: Candidate parameter mapping after authoritative values are applied.
+        authoritative_patch: Validated backend-authoritative patch subset.
+        frontend_local_patch: Validated browser-local patch subset.
+        authoritative_keys: Ordered authoritative field names present in the request.
+        ignored_frontend_local_keys: Ordered frontend-local field names ignored by the backend transaction.
+
+    Returns:
+        Immutable detail object used by bridge/runtime coordinators.
+
+    Raises:
+        None.
+
+    Boundary behavior:
+        ``next_params`` preserves the caller's current frontend-local values because
+        backend transactions must not authoritatively mutate browser-only settings.
+    """
+
+    next_params: dict[str, Any]
+    authoritative_patch: dict[str, Any]
+    frontend_local_patch: dict[str, Any]
+    authoritative_keys: tuple[str, ...]
+    ignored_frontend_local_keys: tuple[str, ...]
+
+
 @dataclass(slots=True)
 class RuntimeParameterTransaction:
     """Tracked multi-consumer runtime-parameter apply transaction.
@@ -79,6 +157,8 @@ class RuntimeParameterTransaction:
     rollback_params: dict[str, Any] = field(default_factory=dict)
     rollback_profile_name: str = '演示标准'
     rollback_runtime_param_version: int = 1
+    authoritative_keys: tuple[str, ...] = field(default_factory=tuple)
+    ignored_frontend_local_keys: tuple[str, ...] = field(default_factory=tuple)
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -95,6 +175,8 @@ class RuntimeParameterTransaction:
             'commandType': self.command_type or None,
             'commandMessage': self.command_message or None,
             'traceId': self.trace_id or None,
+            'authoritativeKeys': list(self.authoritative_keys),
+            'ignoredFrontendLocalKeys': list(self.ignored_frontend_local_keys),
         }
 
 
@@ -155,13 +237,59 @@ class RuntimeParameterState:
 
 
 def runtime_param_defaults() -> dict[str, Any]:
-    """Return the default runtime parameter set."""
+    """Return the full runtime parameter defaults, including browser-local fields."""
     return {key: rule['default'] for key, rule in RUNTIME_PARAM_SCHEMA.items()}
+
+
+def runtime_param_authoritative_defaults() -> dict[str, Any]:
+    """Return only backend-authoritative runtime parameter defaults."""
+    defaults = runtime_param_defaults()
+    return {key: defaults[key] for key in RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS}
+
+
+def runtime_param_frontend_local_defaults() -> dict[str, Any]:
+    """Return only browser-local runtime parameter defaults."""
+    defaults = runtime_param_defaults()
+    return {key: defaults[key] for key in RUNTIME_PARAM_FRONTEND_LOCAL_KEYS}
 
 
 def runtime_param_profiles() -> dict[str, dict[str, Any]]:
     """Return a copy of the predefined runtime parameter profiles."""
     return {name: dict(values) for name, values in RUNTIME_PARAM_PROFILES.items()}
+
+
+def runtime_param_field_contracts() -> dict[str, dict[str, Any]]:
+    """Return a copy of per-field ownership metadata."""
+    return {
+        key: {
+            'scope': str(contract['scope']),
+            'consumers': tuple(contract['consumers']),
+            'ackOwners': tuple(contract['ackOwners']),
+            'notes': str(contract['notes']),
+        }
+        for key, contract in RUNTIME_PARAM_FIELD_CONTRACTS.items()
+    }
+
+
+def runtime_param_field_scope(key: str) -> str:
+    """Return the declared ownership scope for one runtime parameter key."""
+    normalized = validate_runtime_param_key(key)
+    return str(RUNTIME_PARAM_FIELD_CONTRACTS[normalized]['scope'])
+
+
+def runtime_param_authoritative_view(params: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the backend-authoritative subset of one parameter mapping."""
+    merged = dict(runtime_param_authoritative_defaults())
+    merged.update({key: params[key] for key in RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS if key in params})
+    return merged
+
+
+def runtime_param_frontend_local_view(params: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the browser-local subset of one parameter mapping."""
+    merged = dict(runtime_param_frontend_local_defaults())
+    merged.update({key: params[key] for key in RUNTIME_PARAM_FRONTEND_LOCAL_KEYS if key in params})
+    return merged
+
 
 def runtime_param_expected_consumers(*, include_monitor: bool = False) -> tuple[str, ...]:
     """Return the authoritative runtime-parameter consumer set.
@@ -223,6 +351,50 @@ def apply_runtime_param_update(current: Mapping[str, Any], *, key: str, value: A
     return next_params
 
 
+def split_runtime_param_patch(patch: Mapping[str, Any]) -> RuntimeParameterPatchDetail:
+    """Classify one patch into authoritative and browser-local subsets.
+
+    Args:
+        patch: Candidate runtime-parameter patch.
+
+    Returns:
+        ``RuntimeParameterPatchDetail`` containing validated subsets.
+
+    Raises:
+        RuntimeParameterError: If the payload is not mapping-like, empty, or any
+            key/value pair is invalid.
+
+    Boundary behavior:
+        Frontend-local fields are validated for compatibility reporting, but they
+        remain excluded from backend-authoritative transactions.
+    """
+    if not isinstance(patch, Mapping):
+        raise RuntimeParameterError('runtime parameter patch must be a mapping')
+    if not patch:
+        raise RuntimeParameterError('runtime parameter patch must not be empty')
+    authoritative_patch: dict[str, Any] = {}
+    frontend_local_patch: dict[str, Any] = {}
+    authoritative_keys: list[str] = []
+    ignored_frontend_local_keys: list[str] = []
+    for raw_key, raw_value in patch.items():
+        normalized = validate_runtime_param_key(str(raw_key))
+        coerced = coerce_runtime_param_value(normalized, raw_value)
+        if runtime_param_field_scope(normalized) == RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE:
+            authoritative_patch[normalized] = coerced
+            authoritative_keys.append(normalized)
+        else:
+            frontend_local_patch[normalized] = coerced
+            ignored_frontend_local_keys.append(normalized)
+    next_params = dict(runtime_param_defaults())
+    return RuntimeParameterPatchDetail(
+        next_params=next_params,
+        authoritative_patch=authoritative_patch,
+        frontend_local_patch=frontend_local_patch,
+        authoritative_keys=tuple(authoritative_keys),
+        ignored_frontend_local_keys=tuple(ignored_frontend_local_keys),
+    )
+
+
 def apply_runtime_param_patch(current: Mapping[str, Any], *, patch: Mapping[str, Any]) -> dict[str, Any]:
     """Apply a batch runtime-parameter patch to a parameter mapping.
 
@@ -257,15 +429,64 @@ def apply_runtime_param_patch(current: Mapping[str, Any], *, patch: Mapping[str,
     return next_params
 
 
+def apply_runtime_param_patch_detailed(current: Mapping[str, Any], *, patch: Mapping[str, Any]) -> RuntimeParameterPatchDetail:
+    """Apply one patch using backend/frontend scope semantics.
+
+    Args:
+        current: Current full runtime-parameter mapping.
+        patch: Requested parameter overrides.
+
+    Returns:
+        ``RuntimeParameterPatchDetail`` with the post-apply candidate mapping.
+
+    Raises:
+        RuntimeParameterError: If validation fails.
+
+    Boundary behavior:
+        Browser-local fields remain validated for compatibility reporting but do
+        not alter the authoritative backend candidate.
+    """
+    detail = split_runtime_param_patch(patch)
+    next_params = dict(runtime_param_defaults())
+    next_params.update(dict(current))
+    next_params.update(detail.authoritative_patch)
+    return RuntimeParameterPatchDetail(
+        next_params=next_params,
+        authoritative_patch=dict(detail.authoritative_patch),
+        frontend_local_patch=dict(detail.frontend_local_patch),
+        authoritative_keys=detail.authoritative_keys,
+        ignored_frontend_local_keys=detail.ignored_frontend_local_keys,
+    )
+
+
 def apply_runtime_param_profile(current: Mapping[str, Any], *, profile_name: str) -> dict[str, Any]:
     """Apply a named runtime-parameter profile to a parameter mapping."""
-    _ = current
     normalized = str(profile_name or '').strip()
     if normalized not in RUNTIME_PARAM_PROFILES:
         raise RuntimeParameterError(f'unsupported runtime parameter profile: {normalized}')
     next_params = dict(runtime_param_defaults())
-    next_params.update(RUNTIME_PARAM_PROFILES[normalized])
+    next_params.update(dict(current))
+    next_params.update(dict(RUNTIME_PARAM_PROFILES[normalized]))
     return next_params
+
+
+def apply_runtime_param_profile_detailed(current: Mapping[str, Any], *, profile_name: str) -> RuntimeParameterPatchDetail:
+    """Apply a named runtime profile while preserving browser-local values."""
+    normalized = str(profile_name or '').strip()
+    if normalized not in RUNTIME_PARAM_PROFILES:
+        raise RuntimeParameterError(f'unsupported runtime parameter profile: {normalized}')
+    full_profile = dict(RUNTIME_PARAM_PROFILES[normalized])
+    detail = split_runtime_param_patch(full_profile)
+    next_params = dict(runtime_param_defaults())
+    next_params.update(dict(current))
+    next_params.update(detail.authoritative_patch)
+    return RuntimeParameterPatchDetail(
+        next_params=next_params,
+        authoritative_patch=dict(detail.authoritative_patch),
+        frontend_local_patch=dict(detail.frontend_local_patch),
+        authoritative_keys=detail.authoritative_keys,
+        ignored_frontend_local_keys=detail.ignored_frontend_local_keys,
+    )
 
 
 def runtime_param_digest(params: Mapping[str, Any], *, active_profile_name: str) -> str:

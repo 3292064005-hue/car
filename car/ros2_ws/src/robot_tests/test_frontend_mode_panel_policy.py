@@ -6,10 +6,9 @@ from pathlib import Path
 MODE_PANEL = Path(__file__).resolve().parents[3] / 'robot_frontend' / 'src' / 'components' / 'ModePanel.tsx'
 
 
-def test_mode_panel_does_not_hard_deny_backend_mode_rules() -> None:
+def test_mode_panel_hard_denies_authoritatively_blocked_modes() -> None:
     source = MODE_PANEL.read_text(encoding='utf-8')
-    assert 'const disabled = !rule.allowed;' not in source
-    assert 'const disabled = active || blockedByReadonly;' in source
+    assert 'const disabled = active || blockedByReadonly || commandState.disabled || !rule.allowed;' in source
     assert '当前启用了本地演示锁，模式切换按钮已在浏览器侧禁用。' in source
 
 

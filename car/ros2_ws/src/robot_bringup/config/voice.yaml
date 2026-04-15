@@ -1,3 +1,11 @@
 robot_voice:
   ros__parameters:
     debounce_sec: 1.0
+    min_confidence: 0.55
+    dangerous_min_confidence: 0.75
+    raw_cmd_topic: /robot/voice/raw_cmd
+    accepted_cmd_topic: /robot/voice/cmd
+    ingress_health_topic: /robot/voice/ingress_health
+    ingress_source_id: ''
+    ingress_timeout_sec: 5.0
+    require_ingress_source: false

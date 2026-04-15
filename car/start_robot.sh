@@ -5,6 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   ./start_robot.sh backend [profile] [--skip-preflight] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]
+  ./start_robot.sh backend-rollback [profile] [--skip-preflight] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]
   ./start_robot.sh frontend [profile] [--config-path PATH] [--preflight-report-dir DIR]
   ./start_robot.sh web_bridge [profile] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]
   ./start_robot.sh release-verify [--config-path PATH] [--skip-npm-ci] [--with-frontend] [--with-ros-smoke] [--with-integrated-frontend-smoke]
@@ -24,7 +25,18 @@ UBUNTU_ROOT="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 source "$UBUNTU_ROOT/scripts/start_surface_common.sh"
 
-run_backend() {
+launch_backend_profile() {
+  local profile="$1" legacy_runtime="${2:-0}"
+  if [[ "$legacy_runtime" == "1" ]]; then
+    ros2 launch robot_bringup "${profile}_system.launch.py" bridge_runtime_mode:=legacy_monolith allow_legacy_bridge_runtime:=true
+    return
+  fi
+  ros2 launch robot_bringup "${profile}_system.launch.py"
+}
+
+run_backend_with_runtime() {
+  local legacy_runtime="$1"
+  shift
   local profile="mock" skip_preflight="0" config_path="" preflight_report_dir="/tmp/inspection_robot" build_if_needed="auto"
   while (($# > 0)); do
     case "$1" in
@@ -60,7 +72,15 @@ run_backend() {
     allow_build=1
   fi
   ensure_workspace_install_ready "$PWD" "$profile" "$allow_build"
-  ros2 launch robot_bringup "${profile}_system.launch.py"
+  launch_backend_profile "$profile" "$legacy_runtime"
+}
+
+run_backend() {
+  run_backend_with_runtime "0" "$@"
+}
+
+run_backend_rollback() {
+  run_backend_with_runtime "1" "$@"
 }
 
 run_frontend() {
@@ -132,6 +152,7 @@ run_target_acceptance() {
 
 case "$SURFACE" in
   backend) run_backend "$@" ;;
+  backend-rollback) run_backend_rollback "$@" ;;
   frontend) run_frontend "$@" ;;
   web_bridge) run_web_bridge "$@" ;;
   release-verify) run_release_verify "$@" ;;

@@ -32,10 +32,15 @@ from robot_contracts.bridge_contract import (  # type: ignore
 )
 from robot_contracts.launch_contract import resolve_runtime  # type: ignore
 from robot_utils.constants import ALL_MODES, PROTO_VER  # type: ignore
+from robot_utils.mode_catalog import MODE_TRANSITION_TARGETS  # type: ignore
+from robot_contracts.lane_registry import lane_registry_payload  # type: ignore
+from robot_contracts.signal_ownership import governance_signal_registry_payload  # type: ignore
 
 FRONTEND_CONSTANTS = SOURCE_ROOT / 'robot_frontend' / 'src' / 'shared' / 'constants.ts'
 FRONTEND_TYPES = SOURCE_ROOT / 'robot_frontend' / 'src' / 'types' / 'robot.ts'
 FRONTEND_GENERATED_JSON = SOURCE_ROOT / 'robot_frontend' / 'src' / 'generated' / 'bridgeContract.json'
+FRONTEND_MODE_TRANSITIONS_JSON = SOURCE_ROOT / 'robot_frontend' / 'src' / 'generated' / 'modeTransitions.json'
+FRONTEND_GOVERNANCE_JSON = SOURCE_ROOT / 'robot_frontend' / 'src' / 'generated' / 'governanceContract.json'
 TCP_DOC = SOURCE_ROOT / 'docs' / '04_tcp_json_protocol.md'
 UART_DOC = SOURCE_ROOT / 'docs' / '05_uart_binary_protocol.md'
 STATE_MACHINE_DOC = SOURCE_ROOT / 'docs' / '06_state_machine.md'
@@ -99,6 +104,8 @@ def main() -> int:
     """
     frontend_types_text = FRONTEND_TYPES.read_text(encoding='utf-8')
     generated_json = json.loads(FRONTEND_GENERATED_JSON.read_text(encoding='utf-8'))
+    frontend_mode_transitions = json.loads(_require_file(FRONTEND_MODE_TRANSITIONS_JSON, label='frontend mode-transition artifact').read_text(encoding='utf-8'))
+    frontend_governance = json.loads(_require_file(FRONTEND_GOVERNANCE_JSON, label='frontend governance artifact').read_text(encoding='utf-8'))
     tcp_doc_text = _require_file(TCP_DOC, label='TCP protocol document').read_text(encoding='utf-8')
     uart_doc_text = _require_file(UART_DOC, label='UART protocol document').read_text(encoding='utf-8')
     state_machine_doc_text = _require_file(STATE_MACHINE_DOC, label='state-machine document').read_text(encoding='utf-8')
@@ -126,7 +133,10 @@ def main() -> int:
     _assert('trace_id' in tcp_doc_text or 'traceId' in tcp_doc_text, 'TCP protocol doc missing trace_id guidance')
     for mode in sorted(ALL_MODES):
         _assert(mode in state_machine_doc_text, f'state machine doc missing mode: {mode}')
+    _assert(frontend_mode_transitions.get('transitions') == {mode: list(targets) for mode, targets in MODE_TRANSITION_TARGETS.items()}, 'frontend mode transition artifact mismatch')
     _assert('reset_fault' in state_machine_doc_text, 'state machine doc missing reset_fault recovery rule')
+    _assert(frontend_governance.get('laneRegistry') == lane_registry_payload(include_experimental=True), 'frontend governance lane registry mismatch')
+    _assert(frontend_governance.get('signalRegistry') == governance_signal_registry_payload(), 'frontend governance signal registry mismatch')
     _assert('ROBOT_MSG_CMD_VEL' in stm32_header_text and '0x01' in uart_doc_text, 'UART frame type mapping missing CMD_VEL')
     _assert('ROBOT_MSG_CHASSIS' in stm32_header_text and '0x10' in uart_doc_text, 'UART frame type mapping missing CHASSIS')
 
@@ -160,6 +170,10 @@ def main() -> int:
         'stm32_uart_protocol_version': header_uart_version,
         'tcp_doc_has_trace_id': ('trace_id' in tcp_doc_text or 'traceId' in tcp_doc_text),
         'state_machine_modes': sorted(ALL_MODES),
+        'mode_transition_authority': frontend_mode_transitions.get('authority'),
+        'frontend_mode_transitions_match_backend': frontend_mode_transitions.get('transitions') == {mode: list(targets) for mode, targets in MODE_TRANSITION_TARGETS.items()},
+        'frontend_governance_lane_registry_match_backend': frontend_governance.get('laneRegistry') == lane_registry_payload(include_experimental=True),
+        'frontend_governance_signal_registry_match_backend': frontend_governance.get('signalRegistry') == governance_signal_registry_payload(),
     }
     for name in supported_profiles():
         profile = get_launch_profile(name)

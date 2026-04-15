@@ -2,7 +2,8 @@
 """Run an integrated live smoke test for mock_system + robot_web_bridge + frontend.
 
 This script assumes the caller has already sourced ROS 2 Humble and the workspace
-install setup, and that ``npm ci`` has been executed under ``robot_frontend``. It
+install setup, and that frontend browser smoke can run from an isolated
+temporary workspace copy rather than mutating the canonical source tree. It
 launches the mock ROS graph, waits for expected nodes and the WebSocket endpoint,
 then executes the Playwright live-bridge smoke suite against the real bridge.
 """
@@ -226,7 +227,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--bridge-host', default='127.0.0.1')
     parser.add_argument('--bridge-port', type=int, default=9001)
     parser.add_argument('--bridge-path', default='/ws')
-    parser.add_argument('--frontend-command', default='npm --prefix robot_frontend run test:e2e:live')
+    parser.add_argument('--frontend-command', default='python3 scripts/run_frontend_workspace_command.py -- npm run test:e2e:live')
     parser.add_argument('--log-file', default='/tmp/integrated_frontend_bridge_smoke_launch.log')
     parser.add_argument('--frontend-log-file', default='/tmp/integrated_frontend_bridge_smoke_frontend.log')
     parser.add_argument('--ros-domain-id', type=int, default=91)

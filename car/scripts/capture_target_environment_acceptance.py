@@ -211,10 +211,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     overall_status = coverage_status
 
+    highest_evidence_key = strongest_evidence_class([
+        'integration_live_ros_mock_robot' if host_harness_observed else 'unit_stubbed',
+        'hardware_probe_observational' if real_board_observed else 'unit_stubbed',
+        'hardware_in_loop' if hardware_in_loop_verified else 'unit_stubbed',
+    ])
+
     payload = {
         'schemaVersion': ACCEPTANCE_SCHEMA_VERSION,
         'artifactType': 'target_environment_acceptance',
         'capturedAtUtc': datetime.now(timezone.utc).isoformat(),
+        'passed': overall_status == 'target_environment_accepted',
+        'evidenceClass': evidence_class_payload(highest_evidence_key),
         'host': {
             'platform': platform.platform(),
             'system': platform.system(),

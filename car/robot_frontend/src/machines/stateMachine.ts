@@ -1,3 +1,4 @@
+import { locallyAllowsTransition } from '@/generated/modeTransitions';
 import type {
   ConnectionState,
   FaultState,
@@ -7,17 +8,7 @@ import type {
   TaskState
 } from '@/types/robot';
 
-type ModeSignal = 'BOOT_DONE' | 'ENTER_MANUAL' | 'START_PATROL' | 'ENTER_TRACK' | 'EXIT_TO_IDLE' | 'REQUEST_SAFE_STOP' | 'FAULT_RAISED' | 'RECOVER_TO_IDLE' | 'RECOVER_TO_SAFE_STOP';
-
-const MODE_TRANSITIONS: Record<RobotMode, Partial<Record<ModeSignal, RobotMode>>> = {
-  BOOT: { BOOT_DONE: 'IDLE', REQUEST_SAFE_STOP: 'SAFE_STOP', FAULT_RAISED: 'FAULT' },
-  IDLE: { ENTER_MANUAL: 'MANUAL', START_PATROL: 'PATROL', ENTER_TRACK: 'TRACK', REQUEST_SAFE_STOP: 'SAFE_STOP', FAULT_RAISED: 'FAULT' },
-  MANUAL: { EXIT_TO_IDLE: 'IDLE', START_PATROL: 'PATROL', ENTER_TRACK: 'TRACK', REQUEST_SAFE_STOP: 'SAFE_STOP', FAULT_RAISED: 'FAULT' },
-  PATROL: { EXIT_TO_IDLE: 'IDLE', ENTER_MANUAL: 'MANUAL', ENTER_TRACK: 'TRACK', REQUEST_SAFE_STOP: 'SAFE_STOP', FAULT_RAISED: 'FAULT' },
-  TRACK: { EXIT_TO_IDLE: 'IDLE', ENTER_MANUAL: 'MANUAL', START_PATROL: 'PATROL', REQUEST_SAFE_STOP: 'SAFE_STOP', FAULT_RAISED: 'FAULT' },
-  SAFE_STOP: { RECOVER_TO_IDLE: 'IDLE', FAULT_RAISED: 'FAULT' },
-  FAULT: { RECOVER_TO_SAFE_STOP: 'SAFE_STOP', RECOVER_TO_IDLE: 'IDLE' }
-};
+type ModeSignal = 'BOOT_DONE' | 'ENTER_MANUAL' | 'START_PATROL' | 'ENTER_TRACK' | 'EXIT_TO_IDLE' | 'REQUEST_SAFE_STOP' | 'FAULT_RAISED' | 'RECOVER_TO_IDLE';
 
 function signalForTarget(currentMode: RobotMode, targetMode: RobotMode): ModeSignal | null {
   if (currentMode === targetMode) return null;
@@ -25,19 +16,20 @@ function signalForTarget(currentMode: RobotMode, targetMode: RobotMode): ModeSig
   if (targetMode === 'MANUAL') return 'ENTER_MANUAL';
   if (targetMode === 'PATROL') return 'START_PATROL';
   if (targetMode === 'TRACK') return 'ENTER_TRACK';
-  if (targetMode === 'IDLE') return currentMode === 'FAULT' ? 'RECOVER_TO_IDLE' : currentMode === 'SAFE_STOP' ? 'RECOVER_TO_IDLE' : 'EXIT_TO_IDLE';
-  if (targetMode === 'SAFE_STOP') return currentMode === 'FAULT' ? 'RECOVER_TO_SAFE_STOP' : 'REQUEST_SAFE_STOP';
+  if (targetMode === 'IDLE') return currentMode === 'FAULT' || currentMode === 'SAFE_STOP' ? 'RECOVER_TO_IDLE' : 'EXIT_TO_IDLE';
+  if (targetMode === 'SAFE_STOP') return 'REQUEST_SAFE_STOP';
   if (targetMode === 'FAULT') return 'FAULT_RAISED';
   return null;
 }
 
 function guardTargetMode(input: {
+  currentMode: RobotMode;
   targetMode: RobotMode;
   fault: FaultState;
   connection: ConnectionState;
   power: PowerState;
 }): { allowed: boolean; reason?: string } {
-  const { targetMode, fault, connection } = input;
+  const { currentMode, targetMode, fault, connection } = input;
 
   const allowedTargetModes = connection.allowedTargetModes ?? [];
   const hasAuthoritativeContract = Array.isArray(connection.allowedTargetModes)
@@ -46,7 +38,7 @@ function guardTargetMode(input: {
 
   if (hasAuthoritativeContract) {
     if (Array.isArray(connection.allowedTargetModes) && !allowedTargetModes.includes(targetMode)) {
-      return { allowed: false, reason: connection.modeReasons?.[targetMode] ?? `后端未授权切换到 ${targetMode}` };
+      return { allowed: false, reason: connection.modeReasons?.[targetMode] ?? `后端未授权 ${currentMode} -> ${targetMode}` };
     }
     if (connection.commandPermissions?.set_mode?.allowed === false) {
       return { allowed: false, reason: connection.commandPermissions.set_mode.reason ?? '后端禁止当前模式切换请求' };
@@ -60,7 +52,10 @@ function guardTargetMode(input: {
   if (fault.safeStopActive && ['IDLE', 'MANUAL'].includes(targetMode) && connection.safeStopRecoverable === false) {
     return { allowed: true, reason: connection.safeStopBlockedReason ?? '本地提示：SAFE_STOP 尚不可恢复，最终以后端 ACK 为准' };
   }
-  return { allowed: true, reason: '本地仅提供风险提示，最终裁决以后端为准' };
+  if (!locallyAllowsTransition(currentMode, targetMode)) {
+    return { allowed: false, reason: `本地权威回退矩阵禁止 ${currentMode} -> ${targetMode}` };
+  }
+  return { allowed: true, reason: '本地回退矩阵允许该切换；最终以后端裁决为准' };
 }
 
 export function canTransitionMode(input: {
@@ -73,20 +68,11 @@ export function canTransitionMode(input: {
   const { currentMode, targetMode, fault, connection, power } = input;
   if (currentMode === targetMode) return { allowed: false, reason: '已经处于该模式' };
 
-  const guard = guardTargetMode({ targetMode, fault, connection, power });
+  const guard = guardTargetMode({ currentMode, targetMode, fault, connection, power });
   if (!guard.allowed) return guard;
-
-  if (Array.isArray(connection.allowedTargetModes)) {
-    return { allowed: true };
-  }
 
   const signal = signalForTarget(currentMode, targetMode);
   if (!signal) return { allowed: true, reason: guard.reason };
-
-  const next = MODE_TRANSITIONS[currentMode][signal];
-  if (!next || next !== targetMode) {
-    return { allowed: true, reason: guard.reason ?? '本地模式规则提示该切换可能被拒绝，仍将以后端裁决为准' };
-  }
   return { allowed: true, signal, reason: guard.reason };
 }
 

@@ -38,6 +38,8 @@ export interface MockState {
     transactionId?: string;
     state?: 'pending' | 'applied' | 'failed' | 'timeout';
     rollbackPerformed?: boolean;
+    authoritativeKeys?: string[];
+    ignoredFrontendLocalKeys?: string[];
   } | null;
   lastTransaction?: {
     transactionId: string;
@@ -48,6 +50,8 @@ export interface MockState {
     startedAt?: string | null;
     completedAt?: string | null;
     state?: 'pending' | 'applied' | 'failed' | 'timeout';
+    authoritativeKeys?: string[];
+    ignoredFrontendLocalKeys?: string[];
   } | null;
   estop: boolean;
   safeStop: boolean;

@@ -23,7 +23,10 @@
   <exec_depend>robot_description</exec_depend>
   <exec_depend>robot_localization</exec_depend>
   <exec_depend>robot_navigation</exec_depend>
+  <exec_depend>robot_nav2_adapter</exec_depend>
   <exec_depend>robot_hardware_interface</exec_depend>
+  <exec_depend>robot_direct_driver</exec_depend>
+  <exec_depend>robot_contracts</exec_depend>
   <exec_depend>robot_simulator</exec_depend>
   <exec_depend>robot_api_server</exec_depend>
   <exec_depend>python3-yaml</exec_depend>

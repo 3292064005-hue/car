@@ -64,6 +64,8 @@ def test_frontend_toolchain_runner_exists():
     runner = FRONTEND / 'scripts' / 'run-local-tool.mjs'
     assert runner.exists()
     content = runner.read_text(encoding='utf-8')
-    assert 'npm ci' in content
+    assert 'run npm ci manually for local development' in content
+    assert 'unsupported tool' in content
+    assert 'run_frontend_workspace_command.py' in content
     assert 'typescript' in content
     assert 'vite' in content

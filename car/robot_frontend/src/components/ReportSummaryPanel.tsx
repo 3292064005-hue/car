@@ -11,6 +11,7 @@ const REPORT_ORDER: Array<{ key: string; label: string }> = [
   { key: 'localizationSummary', label: 'localizationSummary' },
   { key: 'hardwareInterfaceSummary', label: 'hardwareInterfaceSummary' },
   { key: 'navigationStatus', label: 'navigationStatus' },
+  { key: 'voiceIngressHealth', label: 'voiceIngressHealth' },
   { key: 'navigationPath', label: 'navigationPath' },
   { key: 'runtimeSupervision', label: 'runtimeSupervision' },
 ];
@@ -95,6 +96,16 @@ function renderTypedDetails(entry?: ReportSurfaceEntry) {
         <div className="kv-item"><span>goal</span><strong>{String(details.goal ?? '-')}</strong></div>
         <div className="kv-item"><span>progress</span><strong>{String(details.progress ?? '-')}</strong></div>
         <div className="kv-item"><span>reason</span><strong>{String(details.reason ?? '-')}</strong></div>
+      </div>
+    );
+  }
+  if (entry.kind === 'voice_ingress_health') {
+    return (
+      <div className="kv-grid">
+        <div className="kv-item"><span>state</span><strong>{String(details.state ?? '-')}</strong></div>
+        <div className="kv-item"><span>reason</span><strong>{String(details.reason ?? '-')}</strong></div>
+        <div className="kv-item"><span>lastSourceId</span><strong>{String(details.lastSourceId ?? '-')}</strong></div>
+        <div className="kv-item"><span>lastIngressAgeSec</span><strong>{String(details.lastIngressAgeSec ?? '-')}</strong></div>
       </div>
     );
   }

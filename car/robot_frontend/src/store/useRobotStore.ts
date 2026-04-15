@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { RobotMode } from '@/types/robot';
 import { canTransitionMode } from '@/store/helpers';
 import { makeInitialStoreData } from '@/store/defaults';
+import { migratePersistedStoreState } from '@/store/profilePersistenceModel';
 import type { RobotStore } from '@/store/model';
 import { createConnectionSlice } from '@/store/slices/connectionSlice';
 import { createLogSlice } from '@/store/slices/logSlice';
@@ -13,31 +14,6 @@ import { createReplaySlice } from '@/store/slices/replaySlice';
 import { createExportSlice } from '@/store/slices/exportSlice';
 
 const initialState = makeInitialStoreData();
-
-function migratePersistedState(persisted: unknown): { profiles: RobotStore['profiles']; ui: RobotStore['ui'] } {
-  if (!persisted || typeof persisted !== 'object') {
-    return { profiles: initialState.profiles, ui: initialState.ui };
-  }
-  const state = persisted as Partial<RobotStore>;
-  const profiles = state.profiles
-    ? {
-        ...initialState.profiles,
-        ...state.profiles,
-        profiles: { ...initialState.profiles.profiles, ...(state.profiles.profiles ?? {}) },
-        applied: { ...initialState.profiles.applied, ...(state.profiles.applied ?? {}) },
-        draft: { ...initialState.profiles.draft, ...(state.profiles.draft ?? {}) },
-      }
-    : initialState.profiles;
-  const ui = state.ui
-    ? {
-        ...initialState.ui,
-        ...state.ui,
-        panelVisibility: { ...initialState.ui.panelVisibility, ...(state.ui.panelVisibility ?? {}) },
-        dashboardLayouts: state.ui.dashboardLayouts ?? initialState.ui.dashboardLayouts,
-      }
-    : initialState.ui;
-  return { profiles, ui };
-}
 
 export const useRobotStore = create<RobotStore>()(
   persist(
@@ -53,8 +29,8 @@ export const useRobotStore = create<RobotStore>()(
     }),
     {
       name: 'robot-console-v4',
-      version: 2,
-      migrate: (persistedState) => migratePersistedState(persistedState),
+      version: 3,
+      migrate: (persistedState) => migratePersistedStoreState(persistedState),
       partialize: (state) => ({
         profiles: state.profiles,
         ui: state.ui,

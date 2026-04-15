@@ -1,0 +1,51 @@
+{
+  "authority": "backend_mode_catalog",
+  "modes": [
+    "BOOT",
+    "IDLE",
+    "MANUAL",
+    "PATROL",
+    "TRACK",
+    "SAFE_STOP",
+    "FAULT"
+  ],
+  "transitions": {
+    "BOOT": [
+      "IDLE",
+      "FAULT"
+    ],
+    "IDLE": [
+      "MANUAL",
+      "PATROL",
+      "SAFE_STOP",
+      "FAULT"
+    ],
+    "MANUAL": [
+      "IDLE",
+      "SAFE_STOP",
+      "FAULT"
+    ],
+    "PATROL": [
+      "IDLE",
+      "MANUAL",
+      "TRACK",
+      "SAFE_STOP",
+      "FAULT"
+    ],
+    "TRACK": [
+      "PATROL",
+      "IDLE",
+      "MANUAL",
+      "SAFE_STOP",
+      "FAULT"
+    ],
+    "SAFE_STOP": [
+      "IDLE",
+      "MANUAL",
+      "FAULT"
+    ],
+    "FAULT": [
+      "IDLE"
+    ]
+  }
+}

@@ -1,12 +1,67 @@
+# Python caches and packaging artifacts
 __pycache__/
-.pytest_cache/
-*.pyc
+*.py[cod]
+*$py.class
 *.pyo
 *.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/
+ENV/
+
+# ROS 2 / colcon build outputs
+ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 ros2_ws/src/**/build/
 ros2_ws/src/**/*.egg-info/
+log/
+
+# Frontend dependencies, build outputs, and browser-test artifacts
 robot_frontend/node_modules/
 robot_frontend/dist/
+robot_frontend/.vite/
+robot_frontend/coverage/
+robot_frontend/playwright-report/
+robot_frontend/test-results/
+
+# Embedded and native build byproducts
+*.o
+*.obj
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+*.d
+
+# Runtime scratch space and generated local reports
 .check/
+tmp/
+*.log
+*.tmp
+
+# Local-only configuration; keep documented examples tracked
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

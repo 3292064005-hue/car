@@ -93,6 +93,38 @@ class LaunchProfile:
             allow_default_stream=self.enable_vision or self.enable_web_bridge or self.mjpeg_url is not None,
         )
 
+    def deployment_tier(self) -> str:
+        """Return the runtime deployment tier modeled by this launch profile.
+
+        Returns:
+            ``host_harness`` for mock/simulator or loopback-bound harness profiles,
+            otherwise ``real_robot``.
+
+        Raises:
+            None.
+        """
+        runtime = self.runtime()
+        bridge_host = str(runtime.bridge.host or '').strip().lower()
+        if self.use_mock_robot:
+            return 'host_harness'
+        if bridge_host in {'127.0.0.1', 'localhost'}:
+            return 'host_harness'
+        return 'real_robot'
+
+    def hardware_boundary_mode(self) -> str:
+        """Describe how Ubuntu-side bringup relates to the board-level boundary.
+
+        Returns:
+            ``host_harness_only`` when the launch profile does not target a real
+            board endpoint; otherwise ``ubuntu_runtime_plus_external_board`` to
+            make it explicit that board validation remains outside this repo's
+            Ubuntu-side launch gate.
+
+        Raises:
+            None.
+        """
+        return 'host_harness_only' if self.deployment_tier() == 'host_harness' else 'ubuntu_runtime_plus_external_board'
+
     def operational_class(self) -> str:
         if self.use_mock_robot:
             return 'mock'
@@ -172,6 +204,8 @@ class LaunchProfile:
         payload['feature_matrix'] = self.feature_matrix()
         payload['runtime'] = asdict(self.runtime())
         payload['operational_class'] = self.operational_class()
+        payload['deployment_tier'] = self.deployment_tier()
+        payload['hardware_boundary_mode'] = self.hardware_boundary_mode()
         payload['startup_sequence'] = list(self.startup_sequence())
         payload['runtime_supervision'] = self.runtime_supervision_model()
         return payload

@@ -32,7 +32,8 @@ import type {
   TaskState,
   UiState,
   VisionState,
-  VoiceState
+  VoiceState,
+  ParamProfileScope
 } from '@/types/robot';
 import type { RobotStoreData } from './model';
 
@@ -62,7 +63,20 @@ export const initialConnection: ConnectionState = {
   capabilities: [...BRIDGE_CAPABILITIES],
   lastSnapshotVersion: null,
   lastTraceId: null,
-  compatibilityMode: 'native-v4'
+  compatibilityMode: 'native-v4',
+  wifiTransportReady: false,
+  uartBoardReady: false,
+  motionHeartbeatReady: false,
+  commandLinkReady: false,
+  gatewayReady: false,
+  gatewayReadyReasons: ['gateway_not_started'],
+  gatewayReadyTopic: null,
+  operatorSurfaceReady: false,
+  operatorSurfaceReadyReasons: ['operator_surface_not_ready'],
+  operatorSurfaceReadyTopic: null,
+  operatorReady: false,
+  operatorReadyReasons: ['operator_surface_not_ready'],
+  operatorReadyTopic: null
 };
 
 export const initialMotion: MotionState = {
@@ -139,9 +153,14 @@ export const initialFault: FaultState = {
   lastUpdateAt: null
 };
 
+export const DEFAULT_PARAM_PROFILE_SCOPES: Record<string, ParamProfileScope> = Object.fromEntries(
+  Object.keys(PARAM_PRESETS).map((name) => [name, 'runtime'])
+) as Record<string, ParamProfileScope>;
+
 export const initialProfiles: StoredProfiles = {
   activeProfileName: '演示标准',
   profiles: PARAM_PRESETS,
+  profileScopes: { ...DEFAULT_PARAM_PROFILE_SCOPES },
   applied: deepCloneParams(DEFAULT_PARAMS),
   draft: deepCloneParams(DEFAULT_PARAMS),
   configDigest: null,
@@ -198,6 +217,7 @@ export const initialReports: ReportsState = {
   localizationSummary: undefined,
   hardwareInterfaceSummary: undefined,
   navigationStatus: undefined,
+  voiceIngressHealth: undefined,
   navigationPath: undefined,
   runtimeSupervision: undefined
 };
@@ -251,7 +271,7 @@ export function makeInitialStoreData(): RobotStoreData {
     task: { ...initialTask, waypoints: [...DEFAULT_WAYPOINTS] },
     fault: { ...initialFault },
     runtime: { ...initialRuntime },
-    profiles: { ...initialProfiles, profiles: { ...PARAM_PRESETS }, applied: deepCloneParams(DEFAULT_PARAMS), draft: deepCloneParams(DEFAULT_PARAMS) },
+    profiles: { ...initialProfiles, profiles: { ...PARAM_PRESETS }, profileScopes: { ...DEFAULT_PARAM_PROFILE_SCOPES }, applied: deepCloneParams(DEFAULT_PARAMS), draft: deepCloneParams(DEFAULT_PARAMS) },
     history: { ...initialHistory },
     inspector: { ...initialInspector, trace: [] },
     replay: { ...initialReplay },

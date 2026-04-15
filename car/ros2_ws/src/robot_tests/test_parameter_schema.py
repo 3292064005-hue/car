@@ -11,11 +11,9 @@ from robot_utils.parameter_schema import (
 )
 
 
-def test_validate_patrol_config_accepts_repo_file():
-    path = Path(__file__).resolve().parents[1] / 'robot_bringup' / 'config' / 'patrol.yaml'
-    data = load_structured_file(str(path), {})
-    patrol = validate_patrol_config(data)
-    assert patrol['steps'][0]['name']
+def test_validate_patrol_config_accepts_inline_payload():
+    patrol = validate_patrol_config({'patrol': {'steps': [{'name': 'scan_a', 'duration_sec': 1.0, 'linear': 0.0, 'angular': 0.5}]}})
+    assert patrol['steps'][0]['name'] == 'scan_a'
 
 
 def test_validate_color_profiles_rejects_missing_hsv():

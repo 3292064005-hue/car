@@ -8,7 +8,7 @@ robot_control:
     track_angular_scale: 0.85
     publish_rate_hz: 20.0
     manual_timeout_sec: 0.6
-    patrol_timeout_sec: 0.8
+    navigation_timeout_sec: 0.8
     track_timeout_sec: 0.5
     max_linear_step: 0.05
     max_angular_step: 0.12

@@ -9,7 +9,6 @@ from robot_utils.constants import (
     CONTROL_SOURCE_IDLE,
     CONTROL_SOURCE_MANUAL,
     CONTROL_SOURCE_NAVIGATION,
-    CONTROL_SOURCE_PATROL,
     CONTROL_SOURCE_TRACK,
     MODE_IDLE,
     MODE_MANUAL,
@@ -55,11 +54,9 @@ def _arbitration_audit(
     *,
     mode: str,
     manual_cmd: TimedTwist,
-    patrol_cmd: TimedTwist,
     track_cmd: TimedTwist,
     navigation_cmd: TimedTwist,
     manual_timeout_sec: float,
-    patrol_timeout_sec: float,
     track_timeout_sec: float,
     navigation_timeout_sec: float,
     winner: str,
@@ -67,7 +64,7 @@ def _arbitration_audit(
     priorities = {
         MODE_MANUAL: [CONTROL_SOURCE_MANUAL, CONTROL_SOURCE_IDLE],
         MODE_TRACK: [CONTROL_SOURCE_TRACK, CONTROL_SOURCE_IDLE],
-        MODE_PATROL: [CONTROL_SOURCE_NAVIGATION, CONTROL_SOURCE_PATROL, CONTROL_SOURCE_IDLE],
+        MODE_PATROL: [CONTROL_SOURCE_NAVIGATION, CONTROL_SOURCE_IDLE],
         MODE_IDLE: [CONTROL_SOURCE_IDLE],
     }
     candidate_rows = [
@@ -96,16 +93,7 @@ def _arbitration_audit(
             mode=mode,
             mode_gate={MODE_PATROL},
             selected=winner == CONTROL_SOURCE_NAVIGATION,
-            fallback_reason='legacy_patrol_fallback' if winner == CONTROL_SOURCE_PATROL else 'navigation_preferred_in_patrol',
-        ),
-        _candidate_payload(
-            name=CONTROL_SOURCE_PATROL,
-            holder=patrol_cmd,
-            timeout_sec=patrol_timeout_sec,
-            mode=mode,
-            mode_gate={MODE_PATROL},
-            selected=winner == CONTROL_SOURCE_PATROL,
-            fallback_reason='navigation_authoritative_or_patrol_not_requested',
+            fallback_reason='idle_fallback_when_navigation_unavailable',
         ),
     ]
     return {
@@ -113,19 +101,18 @@ def _arbitration_audit(
         'winner': winner,
         'priority': priorities.get(mode, [CONTROL_SOURCE_IDLE]),
         'candidates': candidate_rows,
-        'fallbackActive': winner in {CONTROL_SOURCE_PATROL, CONTROL_SOURCE_IDLE},
-        'selectionPolicy': 'manual>idle | track>idle | patrol:navigation>legacy_patrol>idle',
+        'fallbackActive': winner == CONTROL_SOURCE_IDLE,
+        'selectionPolicy': 'manual>idle | track>idle | patrol:navigation>idle',
+        'legacyPatrolVelocityLaneRemoved': True,
     }
 
 
 def select_command(
     mode: str,
     manual_cmd: TimedTwist,
-    patrol_cmd: TimedTwist,
     track_cmd: TimedTwist,
     navigation_cmd: TimedTwist,
     manual_timeout_sec: float,
-    patrol_timeout_sec: float | None = None,
     track_timeout_sec: float | None = None,
     navigation_timeout_sec: float | None = None,
 ) -> tuple[str, Twist]:
@@ -134,11 +121,9 @@ def select_command(
     Args:
         mode: Current high-level robot mode.
         manual_cmd: Timed manual override command.
-        patrol_cmd: Legacy patrol velocity command.
         track_cmd: Target-tracking velocity command.
         navigation_cmd: Navigation-generated patrol velocity command.
         manual_timeout_sec: Freshness timeout for manual commands.
-        patrol_timeout_sec: Freshness timeout for legacy patrol commands.
         track_timeout_sec: Freshness timeout for tracking commands.
         navigation_timeout_sec: Freshness timeout for navigation commands.
 
@@ -150,19 +135,16 @@ def select_command(
         None.
 
     Boundary behavior:
-        In ``MODE_PATROL`` navigation becomes the preferred business-mainline
-        source. The legacy patrol velocity topic remains as an explicit fallback
-        so historical compatibility paths do not break while the navigation-led
-        mission chain becomes authoritative.
+        In ``MODE_PATROL`` navigation is the only motion-authoritative source.
+        When no fresh navigation command is available the arbiter emits the idle
+        command instead of reviving the retired legacy patrol velocity lane.
     """
     source, twist, _ = select_command_with_audit(
         mode,
         manual_cmd,
-        patrol_cmd,
         track_cmd,
         navigation_cmd,
         manual_timeout_sec,
-        patrol_timeout_sec=patrol_timeout_sec,
         track_timeout_sec=track_timeout_sec,
         navigation_timeout_sec=navigation_timeout_sec,
     )
@@ -172,38 +154,15 @@ def select_command(
 def select_command_with_audit(
     mode: str,
     manual_cmd: TimedTwist,
-    patrol_cmd: TimedTwist,
     track_cmd: TimedTwist,
     navigation_cmd: TimedTwist,
     manual_timeout_sec: float,
-    patrol_timeout_sec: float | None = None,
     track_timeout_sec: float | None = None,
     navigation_timeout_sec: float | None = None,
 ) -> tuple[str, Twist, dict[str, Any]]:
-    """Select one command and emit a stable arbitration audit payload.
-
-    Args:
-        mode: Current high-level robot mode.
-        manual_cmd: Timed manual override command.
-        patrol_cmd: Legacy patrol velocity command.
-        track_cmd: Target-tracking velocity command.
-        navigation_cmd: Navigation-generated patrol velocity command.
-        manual_timeout_sec: Freshness timeout for manual commands.
-        patrol_timeout_sec: Freshness timeout for legacy patrol commands.
-        track_timeout_sec: Freshness timeout for tracking commands.
-        navigation_timeout_sec: Freshness timeout for navigation commands.
-
-    Returns:
-        Tuple ``(source_name, twist, audit)`` where ``audit`` captures winner,
-        candidate freshness, and fallback reasons for all upstream velocity
-        producers.
-
-    Raises:
-        None.
-    """
-    patrol_timeout_sec = manual_timeout_sec if patrol_timeout_sec is None else patrol_timeout_sec
+    """Select one command and emit a stable arbitration audit payload."""
     track_timeout_sec = manual_timeout_sec if track_timeout_sec is None else track_timeout_sec
-    navigation_timeout_sec = patrol_timeout_sec if navigation_timeout_sec is None else navigation_timeout_sec
+    navigation_timeout_sec = manual_timeout_sec if navigation_timeout_sec is None else navigation_timeout_sec
     winner = CONTROL_SOURCE_IDLE
     cmd = zero_twist()
     if mode == MODE_MANUAL and is_fresh(manual_cmd, manual_timeout_sec):
@@ -212,21 +171,15 @@ def select_command_with_audit(
     elif mode == MODE_TRACK and is_fresh(track_cmd, track_timeout_sec):
         winner = CONTROL_SOURCE_TRACK
         cmd = track_cmd.cmd
-    elif mode == MODE_PATROL:
-        if is_fresh(navigation_cmd, navigation_timeout_sec):
-            winner = CONTROL_SOURCE_NAVIGATION
-            cmd = navigation_cmd.cmd
-        elif is_fresh(patrol_cmd, patrol_timeout_sec):
-            winner = CONTROL_SOURCE_PATROL
-            cmd = patrol_cmd.cmd
+    elif mode == MODE_PATROL and is_fresh(navigation_cmd, navigation_timeout_sec):
+        winner = CONTROL_SOURCE_NAVIGATION
+        cmd = navigation_cmd.cmd
     audit = _arbitration_audit(
         mode=mode,
         manual_cmd=manual_cmd,
-        patrol_cmd=patrol_cmd,
         track_cmd=track_cmd,
         navigation_cmd=navigation_cmd,
         manual_timeout_sec=manual_timeout_sec,
-        patrol_timeout_sec=patrol_timeout_sec,
         track_timeout_sec=track_timeout_sec,
         navigation_timeout_sec=navigation_timeout_sec,
         winner=winner,

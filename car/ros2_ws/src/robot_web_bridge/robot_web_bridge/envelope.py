@@ -5,6 +5,7 @@ from typing import Any
 from robot_contracts.bridge_contract import BRIDGE_CAPABILITIES, CommandAck, PROTOCOL_VERSION, SCHEMA_VERSION, make_envelope, now_iso
 
 from .state_model import WebBridgeState
+from .components.node_runtime_surface import build_link_health_snapshot
 
 
 class EnvelopeFactory:
@@ -50,6 +51,7 @@ def build_connection_payload(state: WebBridgeState) -> dict[str, Any]:
     status = state.system_status
     now = now_iso()
     stale_flags = state.stale_flags
+    link_health = build_link_health_snapshot(type('NodeView', (), {'state': state})())
     transport_state = str(transport.get('state') or bridge.get('state') or 'disconnected')
     transport_degraded = bool(transport.get('transport_degraded', False) or stale_flags.get('transport', False))
     bridge_connected = bool(bridge.get('connected', False))
@@ -92,8 +94,10 @@ def build_connection_payload(state: WebBridgeState) -> dict[str, Any]:
         runtime_health_state = 'degraded'
     else:
         runtime_health_state = 'ready'
-    operator_ready = bool(state.operator_ready)
-    operator_ready_reasons = list(state.operator_ready_reasons or (['gateway_not_started'] if not operator_ready else []))
+    gateway_ready = bool(state.operator_ready)
+    gateway_ready_reasons = list(state.operator_ready_reasons or (['gateway_not_started'] if not gateway_ready else []))
+    operator_surface_ready = bool(gateway_ready)
+    operator_surface_ready_reasons = list(gateway_ready_reasons if gateway_ready_reasons else (['gateway_not_started'] if not operator_surface_ready else ['gateway_ready']))
     return {
         'rosConnected': True,
         'bridgeConnected': bridge_connected,
@@ -125,9 +129,21 @@ def build_connection_payload(state: WebBridgeState) -> dict[str, Any]:
         'safeStopRecoverable': contract_snapshot.get('safeStopRecoverable', True),
         'safeStopRequiresManualAck': contract_snapshot.get('safeStopRequiresManualAck', False),
         'safeStopBlockedReason': contract_snapshot.get('safeStopBlockedReason'),
+        'contractSource': contract_snapshot.get('contractSource'),
+        'contractAuthority': contract_snapshot.get('contractAuthority'),
         'runtimeHealthState': runtime_health_state,
         'runtimeHealthReasons': runtime_health_reasons,
-        'operatorReady': operator_ready,
-        'operatorReadyReasons': operator_ready_reasons,
+        'wifiTransportReady': bool(link_health['wifiTransportReady']),
+        'uartBoardReady': bool(link_health['uartBoardReady']),
+        'motionHeartbeatReady': bool(link_health['motionHeartbeatReady']),
+        'commandLinkReady': bool(link_health['commandLinkReady']),
+        'gatewayReady': gateway_ready,
+        'gatewayReadyReasons': gateway_ready_reasons,
+        'gatewayReadyTopic': state.operator_ready_topic,
+        'operatorSurfaceReady': operator_surface_ready,
+        'operatorSurfaceReadyReasons': operator_surface_ready_reasons,
+        'operatorSurfaceReadyTopic': state.operator_ready_topic,
+        'operatorReady': operator_surface_ready,
+        'operatorReadyReasons': operator_surface_ready_reasons,
         'operatorReadyTopic': state.operator_ready_topic,
     }

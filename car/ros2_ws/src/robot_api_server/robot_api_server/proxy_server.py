@@ -387,17 +387,25 @@ class RobotApiProxyServer:
     def _health_payload(self, policy: SessionPolicy | None = None) -> dict[str, Any]:
         effective_policy = policy or self._resolve_policy()
         connection = self._overlay_command_permissions(dict(self.mirror.latest_connection or {}), effective_policy)
-        operator_ready = bool(connection.get('operatorReady'))
+        gateway_ready = bool(connection.get('gatewayReady', connection.get('operatorReady', False)))
+        gateway_ready_reasons = list(connection.get('gatewayReadyReasons') or connection.get('operatorReadyReasons') or ([] if gateway_ready else ['gateway_not_ready']))
         runtime_health_state = str(connection.get('runtimeHealthState') or ('ready' if self.mirror.connected else 'unavailable'))
         runtime_health_reasons = list(connection.get('runtimeHealthReasons') or ([] if self.mirror.connected else ['api_upstream_disconnected']))
-        operator_ready_reasons = list(connection.get('operatorReadyReasons') or ([] if operator_ready else ['operator_surface_not_ready']))
+        operator_surface_ready = bool(self.mirror.connected and gateway_ready)
+        operator_surface_ready_reasons = list(connection.get('operatorSurfaceReadyReasons') or ([] if operator_surface_ready else (gateway_ready_reasons or ['operator_surface_not_ready'])))
         service_ok = bool(self.mirror.connected)
         return {
             'ok': service_ok,
-            'ready': bool(service_ok and operator_ready),
-            'operatorReady': operator_ready,
-            'operatorReadyReasons': operator_ready_reasons,
-            'operatorReadyTopic': connection.get('operatorReadyTopic'),
+            'ready': bool(service_ok and operator_surface_ready),
+            'gatewayReady': gateway_ready,
+            'gatewayReadyReasons': gateway_ready_reasons,
+            'gatewayReadyTopic': connection.get('gatewayReadyTopic', connection.get('operatorReadyTopic')),
+            'operatorSurfaceReady': operator_surface_ready,
+            'operatorSurfaceReadyReasons': operator_surface_ready_reasons,
+            'operatorSurfaceReadyTopic': connection.get('operatorSurfaceReadyTopic', connection.get('gatewayReadyTopic', connection.get('operatorReadyTopic'))),
+            'operatorReady': operator_surface_ready,
+            'operatorReadyReasons': operator_surface_ready_reasons,
+            'operatorReadyTopic': connection.get('operatorSurfaceReadyTopic', connection.get('gatewayReadyTopic', connection.get('operatorReadyTopic'))),
             'upstreamConnected': self.mirror.connected,
             'runtimeHealthState': runtime_health_state,
             'runtimeHealthReasons': runtime_health_reasons,

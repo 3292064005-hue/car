@@ -43,3 +43,17 @@ def test_launch_argument_defaults_can_resolve_from_explicit_profiles_path(tmp_pa
     assert defaults['enable_voice'] == 'false'
     assert defaults['enable_vision'] == 'true'
     assert defaults['log_level'] == 'warn'
+
+
+def test_launch_profile_payload_exposes_deployment_tier() -> None:
+    profile = get_launch_profile('mock')
+    payload = profile.to_dict()
+    assert payload['deployment_tier'] == 'host_harness'
+    assert payload['hardware_boundary_mode'] == 'host_harness_only'
+
+
+def test_hardware_profile_exposes_real_robot_boundary() -> None:
+    profile = get_launch_profile('hardware')
+    payload = profile.to_dict()
+    assert payload['deployment_tier'] == 'real_robot'
+    assert payload['hardware_boundary_mode'] == 'ubuntu_runtime_plus_external_board'

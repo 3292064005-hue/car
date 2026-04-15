@@ -152,7 +152,7 @@ class _GoalHandle:
         return _FakeFuture()
 
 
-def test_set_mode_track_bridges_to_track_action(monkeypatch):
+def test_set_mode_track_bridges_to_track_action_from_patrol(monkeypatch):
     monkeypatch.setattr(command_router_module, 'ActionClient', _FakeActionClient)
     monkeypatch.setattr(command_router_module, 'load_robot_actions', lambda: {
         'StartPatrol': _StartPatrol,
@@ -160,6 +160,17 @@ def test_set_mode_track_bridges_to_track_action(monkeypatch):
         'SaveSnapshotTask': _SaveSnapshotTask,
     })
     node = _FakeNode()
+    node.build_command_context = lambda: CommandContext(
+        current_mode='PATROL',
+        bridge_connected=True,
+        low_power_warning=False,
+        fault_code=None,
+        fault_level='info',
+        estop_active=False,
+        safe_stop_active=False,
+        safe_stop_recoverable=True,
+        safe_stop_blocked_reason=None,
+    )
     router = CommandRouter(node)
 
     router.handle({'type': 'set_mode', 'event_id': 'evt-1', 'payload': {'mode': 'TRACK', 'targetType': 'person', 'minConfidence': 0.7}, 'reason': 'track', 'operator_id': 'tester'})
@@ -171,6 +182,24 @@ def test_set_mode_track_bridges_to_track_action(monkeypatch):
     assert goal.min_confidence == 0.7
     assert node.state.task['actionName'] == 'track_target'
     assert node.state.task['actionPhase'] == 'queued'
+
+
+def test_set_mode_track_is_denied_from_idle(monkeypatch):
+    monkeypatch.setattr(command_router_module, 'ActionClient', _FakeActionClient)
+    monkeypatch.setattr(command_router_module, 'load_robot_actions', lambda: {
+        'StartPatrol': _StartPatrol,
+        'TrackTarget': _TrackTarget,
+        'SaveSnapshotTask': _SaveSnapshotTask,
+    })
+    node = _FakeNode()
+    router = CommandRouter(node)
+
+    router.handle({'type': 'set_mode', 'event_id': 'evt-track-deny', 'payload': {'mode': 'TRACK', 'targetType': 'person'}, 'reason': 'track', 'operator_id': 'tester'})
+
+    assert node.mode_client.calls == 0
+    assert router.track_action_client is not None
+    assert router.track_action_client.sent_goals == []
+    assert any(item[0] == 'evt-track-deny' and item[5] == 'denied' for item in node.sent_acks)
 
 
 def test_patrol_goal_acceptance_updates_ack_and_task(monkeypatch):

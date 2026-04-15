@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+
+import yaml
 from typing import Iterable
 
 from launch.actions import DeclareLaunchArgument, EmitEvent, ExecuteProcess, LogInfo, OpaqueFunction, RegisterEventHandler, SetLaunchConfiguration
@@ -11,11 +13,11 @@ from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 
+from robot_contracts.lane_registry import hardware_lane_entry, navigation_lane_entry
 from robot_bringup.config_resolution import CONFIG_PATH_INPUT_ENV, resolve_bringup_config
 from robot_bringup.launch_profiles import launch_argument_defaults
 from robot_bridge.runtime_factory import (
     DEFAULT_BRIDGE_RUNTIME_MODE,
-    DEFAULT_BRIDGE_RUNTIME_SPLIT,
     LEGACY_MONOLITH_RUNTIME_LABEL,
     SPLIT_RUNTIME_LABEL,
     normalize_bridge_runtime_mode,
@@ -91,7 +93,7 @@ def _launch_arg_truthy(context, name: str, *, default: bool = False) -> bool:
 
 
 def _bridge_runtime_setup(context):
-    """Resolve bridge runtime mode and compatibility gating.
+    """Resolve bridge runtime mode and rollback-only compatibility gating.
 
     Args:
         context: Launch runtime context.
@@ -101,13 +103,15 @@ def _bridge_runtime_setup(context):
 
     Raises:
         None. Invalid legacy selections are converted into launch shutdown actions.
+
+    Boundary behavior:
+        ``bridge_runtime_split`` is no longer a public launch argument. The
+        launch graph derives its internal split/legacy boolean solely from the
+        authoritative ``bridge_runtime_mode`` selection so the default launch
+        surface exposes one mainline runtime plus one explicit rollback gate.
     """
     requested_mode = str(LaunchConfiguration('bridge_runtime_mode').perform(context) or '').strip()
     legacy_allowed = _launch_arg_truthy(context, 'allow_legacy_bridge_runtime', default=False)
-    compatibility_split = str(LaunchConfiguration('bridge_runtime_split').perform(context) or '').strip()
-    compatibility_override = compatibility_split.lower() != _bool_arg(DEFAULT_BRIDGE_RUNTIME_SPLIT)
-    if not requested_mode or (requested_mode == DEFAULT_BRIDGE_RUNTIME_MODE and compatibility_override):
-        requested_mode = compatibility_split
     try:
         mode = normalize_bridge_runtime_mode(requested_mode, allow_legacy=legacy_allowed)
     except ValueError as exc:
@@ -115,18 +119,15 @@ def _bridge_runtime_setup(context):
             LogInfo(msg=f'robot_bringup legacy runtime selection rejected: {exc}'),
             EmitEvent(event=Shutdown(reason=str(exc))),
         ]
-    actions = [
+    return [
         SetLaunchConfiguration('bridge_runtime_mode', mode),
         SetLaunchConfiguration('bridge_runtime_split', _bool_arg(mode == SPLIT_RUNTIME_LABEL)),
         LogInfo(msg=f'robot_bringup bridge_runtime_mode={mode}'),
         LogInfo(
-            msg='[deprecated] bridge_runtime_split is now compatibility-only; use bridge_runtime_mode and allow_legacy_bridge_runtime for rollback',
+            msg='robot_bringup legacy runtime selected through the explicit rollback gate',
             condition=UnlessCondition(LaunchConfiguration('bridge_runtime_split')),
         ),
     ]
-    if compatibility_override and requested_mode == compatibility_split:
-        actions.append(LogInfo(msg='robot_bringup bridge_runtime_split compatibility override engaged'))
-    return actions
 
 
 def _launch_arg_value(context, name: str, *, default: str = '') -> str:
@@ -139,6 +140,104 @@ def _launch_arg_value(context, name: str, *, default: str = '') -> str:
     if not normalized or normalized == AUTO_PROFILE_VALUE:
         return default
     return normalized
+
+
+
+
+def _load_ros_parameters_file(path_value: str, *, root_key: str) -> dict[str, object]:
+    """Load one ROS parameter YAML file and return its ``ros__parameters`` block.
+
+    Args:
+        path_value: Absolute or relative YAML path.
+        root_key: Top-level node key expected in the YAML file.
+
+    Returns:
+        Parameter mapping. Missing or malformed files yield an empty mapping.
+
+    Raises:
+        None.
+    """
+    source = Path(str(path_value or '').strip())
+    if not source.is_file():
+        return {}
+    payload = yaml.safe_load(source.read_text(encoding='utf-8')) or {}
+    config = payload.get(root_key, payload) if isinstance(payload, dict) else {}
+    ros_params = config.get('ros__parameters', {}) if isinstance(config, dict) and isinstance(config.get('ros__parameters', {}), dict) else {}
+    return dict(ros_params)
+
+
+
+def _resolve_navigation_runtime_launch_spec(context) -> dict[str, str]:
+    """Resolve the navigation runtime package/executable/child factory.
+
+    The provider contract remains authoritative; launch-time selection only maps
+    that provider to the lane package declared in the lane registry.
+    """
+    navigation_config_path = _launch_arg_value(context, 'navigation_config_path')
+    params = _load_ros_parameters_file(navigation_config_path, root_key='robot_navigation')
+    provider_name = str(params.get('provider_name', 'simple_nav_provider') or 'simple_nav_provider').strip() or 'simple_nav_provider'
+    lane = navigation_lane_entry(provider_name)
+    return {
+        'provider_name': provider_name,
+        'package': lane.package_name,
+        'executable': lane.executable,
+        'child_factory': lane.child_factory,
+        'node_name': 'robot_navigation',
+    }
+
+
+
+def _resolve_hardware_runtime_launch_spec(context) -> dict[str, str]:
+    """Resolve the hardware runtime lane selected by the hardware config.
+
+    Returns a dictionary describing the lane package and whether bridge runtime
+    remains responsible for board transport topics.
+    """
+    hardware_config_path = _launch_arg_value(context, 'hardware_interface_config_path')
+    params = _load_ros_parameters_file(hardware_config_path, root_key='robot_hardware_interface')
+    role = str(params.get('compatibility_surface_role', 'ros_projection_only') or 'ros_projection_only').strip() or 'ros_projection_only'
+    command_transport = str(params.get('command_transport', 'tcp_json_bridge') or 'tcp_json_bridge').strip() or 'tcp_json_bridge'
+    lane = hardware_lane_entry(role)
+    direct_driver_active = role == 'direct_driver' and command_transport == 'direct_driver_loop'
+    return {
+        'role': role,
+        'command_transport': command_transport,
+        'package': lane.package_name if direct_driver_active else hardware_lane_entry('ros_projection_only').package_name,
+        'executable': lane.executable if direct_driver_active else hardware_lane_entry('ros_projection_only').executable,
+        'child_factory': lane.child_factory if direct_driver_active else hardware_lane_entry('ros_projection_only').child_factory,
+        'node_name': 'robot_direct_driver' if direct_driver_active else 'robot_hardware_interface',
+        'bridge_runtime_active': _bool_arg(not direct_driver_active),
+        'direct_driver_active': _bool_arg(direct_driver_active),
+    }
+
+
+
+def _runtime_component_setup(context):
+    """Set launch configurations for config-driven runtime lane selection.
+
+    Args:
+        context: Launch runtime context.
+
+    Returns:
+        Launch configuration update actions.
+
+    Raises:
+        None.
+    """
+    navigation_spec = _resolve_navigation_runtime_launch_spec(context)
+    hardware_spec = _resolve_hardware_runtime_launch_spec(context)
+    return [
+        SetLaunchConfiguration('navigation_runtime_package', navigation_spec['package']),
+        SetLaunchConfiguration('navigation_runtime_executable', navigation_spec['executable']),
+        SetLaunchConfiguration('navigation_runtime_child_factory', navigation_spec['child_factory']),
+        SetLaunchConfiguration('navigation_runtime_node_name', navigation_spec['node_name']),
+        SetLaunchConfiguration('hardware_runtime_package', hardware_spec['package']),
+        SetLaunchConfiguration('hardware_runtime_executable', hardware_spec['executable']),
+        SetLaunchConfiguration('hardware_runtime_child_factory', hardware_spec['child_factory']),
+        SetLaunchConfiguration('hardware_runtime_node_name', hardware_spec['node_name']),
+        SetLaunchConfiguration('bridge_runtime_active', hardware_spec['bridge_runtime_active']),
+        SetLaunchConfiguration('direct_driver_active', hardware_spec['direct_driver_active']),
+    ]
 
 
 def _operator_surface_http_contract(context) -> tuple[list[str], list[str]]:
@@ -158,7 +257,7 @@ def _operator_surface_http_contract(context) -> tuple[list[str], list[str]]:
     api_prefix = _launch_arg_value(context, 'api_server_api_prefix', default='/api/v1') or '/api/v1'
     if not api_prefix.startswith('/'):
         api_prefix = '/' + api_prefix.lstrip('/')
-    return [f'http://{probe_host}:{api_port}{api_prefix}/health'], ['ok', 'operatorReady']
+    return [f'http://{probe_host}:{api_port}{api_prefix}/health'], ['ok', 'operatorSurfaceReady']
 
 
 def common_arguments(*, profile_name: str):
@@ -174,8 +273,6 @@ def common_arguments(*, profile_name: str):
         None.
     """
     resolved, _defaults = _resolved_runtime_config(profile_name)
-    strict_profiles = {'full', 'hardware'}
-    strict_patrol = profile_name in strict_profiles
     config_root_default = str(resolved.config_root)
     return [
         DeclareLaunchArgument('config_root', default_value=config_root_default),
@@ -212,6 +309,16 @@ def common_arguments(*, profile_name: str):
         DeclareLaunchArgument('navigation_config_path', default_value=config_root_default + '/navigation.yaml'),
         DeclareLaunchArgument('waypoint_config_path', default_value=config_root_default + '/waypoints.yaml'),
         DeclareLaunchArgument('hardware_interface_config_path', default_value=config_root_default + '/hardware_interface.yaml'),
+        DeclareLaunchArgument('navigation_runtime_package', default_value='robot_navigation'),
+        DeclareLaunchArgument('navigation_runtime_executable', default_value='navigation_node'),
+        DeclareLaunchArgument('navigation_runtime_child_factory', default_value='robot_navigation.navigation_node:RobotNavigationNode'),
+        DeclareLaunchArgument('navigation_runtime_node_name', default_value='robot_navigation'),
+        DeclareLaunchArgument('hardware_runtime_package', default_value='robot_hardware_interface'),
+        DeclareLaunchArgument('hardware_runtime_executable', default_value='hardware_interface_node'),
+        DeclareLaunchArgument('hardware_runtime_child_factory', default_value='robot_hardware_interface.hardware_interface_node:RobotHardwareInterfaceNode'),
+        DeclareLaunchArgument('hardware_runtime_node_name', default_value='robot_hardware_interface'),
+        DeclareLaunchArgument('bridge_runtime_active', default_value='true'),
+        DeclareLaunchArgument('direct_driver_active', default_value='false'),
         DeclareLaunchArgument('simulator_config_path', default_value=config_root_default + '/simulator.yaml'),
         DeclareLaunchArgument('api_server_config_path', default_value=config_root_default + '/api_server.yaml'),
         DeclareLaunchArgument('lifecycle_manager_config_path', default_value=config_root_default + '/lifecycle_manager.yaml'),
@@ -221,10 +328,8 @@ def common_arguments(*, profile_name: str):
         DeclareLaunchArgument('startup_barrier_poll_interval_sec', default_value=STARTUP_BARRIER_POLL_INTERVAL_SEC),
         OpaqueFunction(function=lambda context: _profile_defaults_setup(context, profile_name=profile_name)),
         DeclareLaunchArgument('use_fault_profile', default_value='true'),
-        DeclareLaunchArgument('bridge_runtime_split', default_value=_bool_arg(DEFAULT_BRIDGE_RUNTIME_SPLIT)),
-        DeclareLaunchArgument('strict_patrol_config', default_value=_bool_arg(strict_patrol)),
-        DeclareLaunchArgument('allow_default_patrol_fallback', default_value=_bool_arg(not strict_patrol)),
         OpaqueFunction(function=_bridge_runtime_setup),
+        OpaqueFunction(function=_runtime_component_setup),
         LogInfo(msg=['robot_bringup config_root=', LaunchConfiguration('config_root')]),
         LogInfo(msg=['robot_bringup launch_profiles_path=', LaunchConfiguration('launch_profiles_path')]),
     ]
@@ -253,7 +358,7 @@ def _mock_robot_process(log_level: LaunchConfiguration):
         name='inspection_mock_robot',
         shell=False,
         additional_env={'PYTHONUNBUFFERED': '1', 'ROBOT_LOG_LEVEL': log_level},
-        condition=IfCondition(LaunchConfiguration('use_mock_robot')),
+        condition=IfCondition(PythonExpression([LaunchConfiguration('use_mock_robot'), ' and ', LaunchConfiguration('bridge_runtime_active')])),
     )
 
 
@@ -333,12 +438,7 @@ def _resolve_control_barrier_requirements(context, *, include_monitor: bool, inc
 
 
 def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor: bool, include_teleop: bool, include_web_bridge: bool = True):
-    patrol_path = config_path('patrol.yaml')
-    decision_params = [config_path('decision.yaml'), {
-        'patrol_config_path': patrol_path,
-        'strict_patrol_config': LaunchConfiguration('strict_patrol_config'),
-        'allow_default_patrol_fallback': LaunchConfiguration('allow_default_patrol_fallback'),
-    }]
+    decision_params = [config_path('decision.yaml')]
     control_params = [config_path('control.yaml')]
     localization_params = [LaunchConfiguration('localization_config_path'), {'description_path': LaunchConfiguration('description_path')}]
     navigation_params = [LaunchConfiguration('navigation_config_path'), {'route_plan_path': LaunchConfiguration('waypoint_config_path')}]
@@ -352,11 +452,11 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
     diagnostics_enabled = LaunchConfiguration('diagnostics_enabled')
     debug_overlay_enabled = LaunchConfiguration('enable_debug_overlay')
 
-    bridge_node = Node(package='robot_bridge', executable='bridge_node', name='robot_bridge', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=UnlessCondition(LaunchConfiguration('bridge_runtime_split')))
-    bridge_transport_node = Node(package='robot_bridge', executable='bridge_transport_node', name='robot_bridge_transport', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('bridge_runtime_split')))
-    bridge_protocol_node = Node(package='robot_bridge', executable='bridge_protocol_node', name='robot_bridge_protocol', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('bridge_runtime_split')))
-    bridge_projection_node = Node(package='robot_bridge', executable='bridge_projection_node', name='robot_bridge_projection', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('bridge_runtime_split')))
-    bridge_health_node = Node(package='robot_bridge', executable='bridge_health_node', name='robot_bridge_health', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('bridge_runtime_split')))
+    bridge_node = Node(package='robot_bridge', executable='bridge_node', name='robot_bridge', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('bridge_runtime_active'), ' and not ', LaunchConfiguration('bridge_runtime_split')])))
+    bridge_transport_node = Node(package='robot_bridge', executable='bridge_transport_node', name='robot_bridge_transport', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('bridge_runtime_active'), ' and ', LaunchConfiguration('bridge_runtime_split')])))
+    bridge_protocol_node = Node(package='robot_bridge', executable='bridge_protocol_node', name='robot_bridge_protocol', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('bridge_runtime_active'), ' and ', LaunchConfiguration('bridge_runtime_split')])))
+    bridge_projection_node = Node(package='robot_bridge', executable='bridge_projection_node', name='robot_bridge_projection', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('bridge_runtime_active'), ' and ', LaunchConfiguration('bridge_runtime_split')])))
+    bridge_health_node = Node(package='robot_bridge', executable='bridge_health_node', name='robot_bridge_health', parameters=bridge_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('bridge_runtime_active'), ' and ', LaunchConfiguration('bridge_runtime_split')])))
     control_node = Node(package='robot_control', executable='control_node', name='robot_control', parameters=control_params + [fault_params], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=UnlessCondition(LaunchConfiguration('enable_ros_lifecycle_manager')))
     control_lifecycle_node = Node(package='robot_bringup', executable='managed_component_node', name='robot_control_lifecycle', parameters=[{'component_id': 'robot_control', 'child_factory': 'robot_control.control_node:ControlNode', 'child_node_name': 'robot_control', 'executor_threads': 1, 'bond_topic': '/bond', 'status_topic': '/robot/lifecycle/robot_control/status'}], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_ros_lifecycle_manager')))
     monitor_node = None
@@ -371,9 +471,9 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
     decision_node = Node(package='robot_decision', executable='decision_node', name='robot_decision', parameters=decision_params, arguments=['--ros-args', '--log-level', log_level], output='screen', condition=UnlessCondition(LaunchConfiguration('enable_ros_lifecycle_manager')))
     decision_lifecycle_node = Node(package='robot_bringup', executable='managed_component_node', name='robot_decision_lifecycle', parameters=[{'component_id': 'robot_decision', 'child_factory': 'robot_decision.decision_node:DecisionNode', 'child_node_name': 'robot_decision', 'executor_threads': 4, 'bond_topic': '/bond', 'status_topic': '/robot/lifecycle/robot_decision/status'}], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_ros_lifecycle_manager')))
     localization_node = Node(package='robot_localization', executable='localization_node', name='robot_localization', parameters=localization_params, arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_localization')))
-    navigation_node = Node(package='robot_navigation', executable='navigation_node', name='robot_navigation', parameters=navigation_params, arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('enable_navigation'), ' and not ', LaunchConfiguration('enable_ros_lifecycle_manager')])))
-    navigation_lifecycle_node = Node(package='robot_bringup', executable='managed_component_node', name='robot_navigation_lifecycle', parameters=[{'component_id': 'robot_navigation', 'child_factory': 'robot_navigation.navigation_node:RobotNavigationNode', 'child_node_name': 'robot_navigation', 'executor_threads': 1, 'bond_topic': '/bond', 'status_topic': '/robot/lifecycle/robot_navigation/status'}], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('enable_navigation'), ' and ', LaunchConfiguration('enable_ros_lifecycle_manager')])))
-    hardware_interface_node = Node(package='robot_hardware_interface', executable='hardware_interface_node', name='robot_hardware_interface', parameters=hardware_interface_params, arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_hardware_interface')))
+    navigation_node = Node(package=LaunchConfiguration('navigation_runtime_package'), executable=LaunchConfiguration('navigation_runtime_executable'), name=LaunchConfiguration('navigation_runtime_node_name'), parameters=navigation_params, arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('enable_navigation'), ' and not ', LaunchConfiguration('enable_ros_lifecycle_manager')])))
+    navigation_lifecycle_node = Node(package='robot_bringup', executable='managed_component_node', name='robot_navigation_lifecycle', parameters=[{'component_id': 'robot_navigation', 'child_factory': LaunchConfiguration('navigation_runtime_child_factory'), 'child_node_name': LaunchConfiguration('navigation_runtime_node_name'), 'executor_threads': 1, 'bond_topic': '/bond', 'status_topic': '/robot/lifecycle/robot_navigation/status'}], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(PythonExpression([LaunchConfiguration('enable_navigation'), ' and ', LaunchConfiguration('enable_ros_lifecycle_manager')])))
+    hardware_interface_node = Node(package=LaunchConfiguration('hardware_runtime_package'), executable=LaunchConfiguration('hardware_runtime_executable'), name=LaunchConfiguration('hardware_runtime_node_name'), parameters=hardware_interface_params, arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_hardware_interface')))
     teleop_node = None
     if include_teleop:
         teleop_node = Node(package='robot_teleop', executable='keyboard_teleop', name='robot_keyboard_teleop', parameters=[config_path('teleop.yaml')], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_teleop')))

@@ -39,29 +39,29 @@ export function ReplayPanel() {
 
   return (
     <SectionCard
-      title="会话回放"
+      title="离线会话回放"
       right={
         <div className="toolbar-inline">
           <label className="ghost-btn small-btn">
-            <Upload size={14} />导入会话
+            <Upload size={14} />导入离线会话
             <input type="file" accept="application/json" hidden onChange={onFileChange} />
           </label>
-          <button className="ghost-btn small-btn" disabled={!replay.session} onClick={() => replay.session && downloadText('replay-session.json', toJson(replay.session), 'application/json;charset=utf-8')}>
-            <Download size={14} />导出副本
+          <button className="ghost-btn small-btn" disabled={!replay.session} onClick={() => replay.session && downloadText('offline-session-export.json', toJson(replay.session), 'application/json;charset=utf-8')}>
+            <Download size={14} />导出离线副本
           </button>
           <button className="ghost-btn small-btn" disabled={!replay.session} onClick={clearReplaySession}>清空</button>
         </div>
       }
     >
       {error ? <div className="danger-text">{error}</div> : null}
-      {!replay.session ? <p className="muted">导入前端导出的会话 JSON，即可在只读模式下查看日志、命令、趋势和检查器记录。</p> : null}
+      {!replay.session ? <p className="muted">导入前端导出的离线会话 JSON，即可在只读模式下查看日志、命令、趋势和检查器记录。该能力不依赖后端 session replay 服务。</p> : null}
       {replay.session ? (
         <>
           <div className="kv-grid">
-            <div className="kv-item"><span>来源</span><strong>{replay.session.sourceName}</strong></div>
-            <div className="kv-item"><span>导出时间</span><strong>{formatDateTime(replay.session.exportedAt)}</strong></div>
+            <div className="kv-item"><span>离线来源</span><strong>{replay.session.sourceName}</strong></div>
+            <div className="kv-item"><span>离线导出时间</span><strong>{formatDateTime(replay.session.exportedAt)}</strong></div>
             <div className="kv-item"><span>日志总数</span><strong>{replay.session.logs.length}</strong></div>
-            <div className="kv-item"><span>当前游标</span><strong>{replay.activeLogIndex + 1}</strong></div>
+            <div className="kv-item"><span>当前离线游标</span><strong>{replay.activeLogIndex + 1}</strong></div>
             <div className="kv-item"><span>ACK 平均</span><strong>{formatNumber(average(replay.session.history.ackLatency), 1)} ms</strong></div>
             <div className="kv-item"><span>ACK P95</span><strong>{formatNumber(percentile(replay.session.history.ackLatency, 95), 1)} ms</strong></div>
           </div>
@@ -70,10 +70,10 @@ export function ReplayPanel() {
             <span className="muted">{Math.round(progress * 100)}%</span>
           </div>
           <div className="kv-grid compact-grid">
-            <div className="kv-item"><span>回放延迟样本</span><strong>{replay.session.history.latency[historyIndex] ?? 0} ms</strong></div>
-            <div className="kv-item"><span>回放电量样本</span><strong>{replay.session.history.battery[historyIndex] ?? 0} %</strong></div>
-            <div className="kv-item"><span>回放左轮样本</span><strong>{formatNumber(replay.session.history.leftWheel[historyIndex] ?? 0, 2)}</strong></div>
-            <div className="kv-item"><span>回放右轮样本</span><strong>{formatNumber(replay.session.history.rightWheel[historyIndex] ?? 0, 2)}</strong></div>
+            <div className="kv-item"><span>离线延迟样本</span><strong>{replay.session.history.latency[historyIndex] ?? 0} ms</strong></div>
+            <div className="kv-item"><span>离线电量样本</span><strong>{replay.session.history.battery[historyIndex] ?? 0} %</strong></div>
+            <div className="kv-item"><span>离线左轮样本</span><strong>{formatNumber(replay.session.history.leftWheel[historyIndex] ?? 0, 2)}</strong></div>
+            <div className="kv-item"><span>离线右轮样本</span><strong>{formatNumber(replay.session.history.rightWheel[historyIndex] ?? 0, 2)}</strong></div>
           </div>
           <div ref={parentRef} className="virtual-list replay-list">
             <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, position: 'relative' }}>

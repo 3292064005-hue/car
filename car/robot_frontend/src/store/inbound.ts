@@ -3,11 +3,19 @@ import { deepCloneParams, pushHistory, uuid } from '@/shared/utils';
 import { reportSurfaceEntrySchema } from '@/generated/bridgeContract';
 import type { BridgeInboundEvent, ReportSurfaceEntry } from '@/types/robot';
 import type { RobotStoreData } from './model';
-import { makeLog } from './defaults';
+import { DEFAULT_PARAM_PROFILE_SCOPES, makeLog } from './defaults';
+import { reconcileRuntimeProfiles } from './profileScopeModel';
 
 function normalizeReportEntry(entry: unknown): ReportSurfaceEntry | undefined {
   const parsed = reportSurfaceEntrySchema.safeParse(entry);
   return parsed.success ? parsed.data : undefined;
+}
+
+function normalizeCapabilities(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === 'string');
 }
 
 export function applyInboundEventToState(state: RobotStoreData, event: BridgeInboundEvent): Pick<RobotStoreData, 'connection' | 'motion' | 'power' | 'vision' | 'voice' | 'task' | 'fault' | 'profiles' | 'history' | 'reports' | 'commands' | 'logs'> {
@@ -30,16 +38,19 @@ export function applyInboundEventToState(state: RobotStoreData, event: BridgeInb
       : event.type === 'heartbeat' || event.type === 'connection_state'
         ? event.payload
         : undefined;
-  const compatibilityMode =
-    connectionPayload?.compatibilityMode ??
-    connection.compatibilityMode ??
-    (event.protocolVersion.startsWith('4') ? 'native-v4' : event.protocolVersion.startsWith('3') ? 'legacy-v3' : 'legacy-v2');
+  const compatibilityMode = 'native-v4';
+  const nextCapabilities =
+    normalizeCapabilities(event.capabilities).length > 0
+      ? normalizeCapabilities(event.capabilities)
+      : normalizeCapabilities(connectionPayload?.capabilities).length > 0
+        ? normalizeCapabilities(connectionPayload?.capabilities)
+        : normalizeCapabilities(connection.capabilities);
 
   connection = {
     ...connection,
     protocolVersion: event.protocolVersion,
     schemaVersion: event.schemaVersion,
-    capabilities: event.capabilities ?? connectionPayload?.capabilities ?? connection.capabilities,
+    capabilities: nextCapabilities,
     lastTraceId: event.traceId ?? connection.lastTraceId,
     compatibilityMode,
   };
@@ -151,12 +162,17 @@ export function applyInboundEventToState(state: RobotStoreData, event: BridgeInb
       task = { ...state.task, ...(event.payload.task ?? {}) };
       fault = { ...state.fault, ...(event.payload.fault ?? {}) };
       const nextApplied = deepCloneParams({ ...state.profiles.applied, ...(event.payload.params ?? {}) });
-      const activeProfileName = event.payload.paramMetadata?.activeProfileName ?? state.profiles.activeProfileName;
-      const nextProfiles = { ...state.profiles.profiles };
+      const reconciliation = reconcileRuntimeProfiles({
+        profiles: { ...state.profiles.profiles },
+        profileScopes: { ...DEFAULT_PARAM_PROFILE_SCOPES, ...state.profiles.profileScopes },
+        appliedProfile: nextApplied,
+        currentActiveProfileName: state.profiles.activeProfileName,
+        metadata: event.payload.paramMetadata ?? null,
+      });
+      const activeProfileName = reconciliation.activeProfileName;
+      const nextProfiles = reconciliation.profiles;
+      const nextProfileScopes = reconciliation.profileScopes;
       const hasLocalDraftEdits = JSON.stringify(state.profiles.draft) !== JSON.stringify(state.profiles.applied);
-      if (activeProfileName && !(activeProfileName in nextProfiles)) {
-        nextProfiles[activeProfileName] = deepCloneParams(nextApplied);
-      }
       reports = {
         controlSummary: normalizeReportEntry(event.payload.reports?.controlSummary) ?? state.reports.controlSummary,
         monitorSummary: normalizeReportEntry(event.payload.reports?.monitorSummary) ?? state.reports.monitorSummary,
@@ -164,6 +180,7 @@ export function applyInboundEventToState(state: RobotStoreData, event: BridgeInb
         localizationSummary: normalizeReportEntry(event.payload.reports?.localizationSummary) ?? state.reports.localizationSummary,
         hardwareInterfaceSummary: normalizeReportEntry(event.payload.reports?.hardwareInterfaceSummary) ?? state.reports.hardwareInterfaceSummary,
         navigationStatus: normalizeReportEntry(event.payload.reports?.navigationStatus) ?? state.reports.navigationStatus,
+        voiceIngressHealth: normalizeReportEntry(event.payload.reports?.voiceIngressHealth) ?? state.reports.voiceIngressHealth,
         navigationPath: normalizeReportEntry(event.payload.reports?.navigationPath) ?? state.reports.navigationPath,
         runtimeSupervision: normalizeReportEntry(event.payload.reports?.runtimeSupervision) ?? state.reports.runtimeSupervision,
       };
@@ -171,6 +188,7 @@ export function applyInboundEventToState(state: RobotStoreData, event: BridgeInb
         ...state.profiles,
         activeProfileName,
         profiles: nextProfiles,
+        profileScopes: nextProfileScopes,
         applied: nextApplied,
         draft: hasLocalDraftEdits ? deepCloneParams(state.profiles.draft) : deepCloneParams(nextApplied),
         configDigest: event.payload.paramMetadata?.configDigest ?? state.profiles.configDigest,
@@ -182,7 +200,15 @@ export function applyInboundEventToState(state: RobotStoreData, event: BridgeInb
         lastParamApplyResult: event.payload.paramMetadata?.lastParamApplyResult ?? state.profiles.lastParamApplyResult,
         lastTransaction: event.payload.paramMetadata?.lastTransaction ?? state.profiles.lastTransaction,
       };
-      logs = event.payload.logs ? [...event.payload.logs, ...state.logs].slice(0, MAX_LOGS) : state.logs;
+      if (reconciliation.renamedLocalProfiles.length > 0) {
+        const renameLogs = reconciliation.renamedLocalProfiles.map(({ from, to }) =>
+          makeLog('WARN', 'PARAM', `本地参数预设 ${from} 与运行时预设重名，已自动保留为 ${to}。`, undefined, event.ts),
+        );
+        logs = [...renameLogs, ...state.logs].slice(0, MAX_LOGS);
+      } else {
+        logs = state.logs;
+      }
+      logs = event.payload.logs ? [...event.payload.logs, ...logs].slice(0, MAX_LOGS) : logs;
       break;
     }
   }

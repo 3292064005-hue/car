@@ -7,6 +7,7 @@ def test_frontend_report_panel_lists_platform_surfaces() -> None:
     assert 'localizationSummary' in source
     assert 'hardwareInterfaceSummary' in source
     assert 'navigationStatus' in source
+    assert 'voiceIngressHealth' in source
     assert 'navigationPath' in source
     assert 'runtimeSupervision' in source
 
@@ -17,6 +18,7 @@ def test_web_bridge_subscribes_platform_surface_reports() -> None:
     assert '/robot/localization/summary' in source
     assert '/robot/hardware_interface/summary' in source
     assert '/robot/navigation/status' in source
+    assert '/robot/voice/ingress_health' in source
     assert '/robot/navigation/path' in source
     assert '/robot/runtime/supervision' in source
 
@@ -29,6 +31,7 @@ def test_report_panel_mentions_typed_surface_kinds() -> None:
     assert 'monitor_diagnostics' in source
     assert 'localization_summary' in source
     assert 'hardware_interface_summary' in source
+    assert 'voice_ingress_health' in source
     assert 'lifecycleManager' in source
     assert 'bondSupervision' in source
     assert 'recoveryPlan' in source

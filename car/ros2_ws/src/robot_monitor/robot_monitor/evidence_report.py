@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from robot_utils.acceptance_bundle import build_verification_identity, acceptance_identity_matches_reference, validate_acceptance_artifact
+from robot_utils.acceptance_bundle import validate_target_environment_acceptance
 from robot_utils.config_loader import load_structured_file
 from robot_utils.verification_evidence import evidence_class_payload, strongest_evidence_class
 
@@ -25,41 +25,12 @@ def _target_acceptance_payload(path: str | Path | None) -> tuple[dict[str, Any],
 def _target_acceptance_verified(payload: dict[str, Any]) -> bool:
     if not isinstance(payload, dict):
         return False
-    target_validation = validate_acceptance_artifact(
+    validation = validate_target_environment_acceptance(
         payload,
-        expected_type='target_environment_acceptance',
-        require_hardware_identity=False,
-        require_firmware_identity=False,
-    )
-    if not target_validation.valid:
-        return False
-    reference_identity = build_verification_identity(
         repo_root=Path(__file__).resolve().parents[4],
         config_path=None,
-        profile_name=str(target_validation.normalized.get('verificationIdentity', {}).get('profileName', '') or 'target_acceptance'),
-        hardware_identity={},
-        firmware_identity={},
     )
-    reference_ok, _ = acceptance_identity_matches_reference(
-        target_validation.normalized,
-        reference_identity=reference_identity,
-        require_hardware_identity=False,
-        require_firmware_identity=False,
-    )
-    if not reference_ok:
-        return False
-    verification = payload.get('verificationCoverage', {}) if isinstance(payload.get('verificationCoverage', {}), dict) else {}
-    runtime = payload.get('runtime', {}) if isinstance(payload.get('runtime', {}), dict) else {}
-    ros2_info = runtime.get('ros2', {}) if isinstance(runtime.get('ros2', {}), dict) else {}
-    status = str(payload.get('status', '') or '')
-    return bool(
-        status == 'target_environment_accepted'
-        and verification.get('hostHarnessVerified', False)
-        and verification.get('realBoardObserved', False)
-        and verification.get('hardwareInLoopVerified', False)
-        and runtime.get('rclpyAvailable', False)
-        and ros2_info.get('available', False)
-    )
+    return validation.valid
 
 
 def build_evidence_report(*, metrics_path: str | Path, evidence_index_path: str | Path, target_environment_acceptance_path: str | Path | None = None) -> dict[str, Any]:

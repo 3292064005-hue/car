@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Mapping
 
 from robot_contracts.capabilities import COMMAND_TYPES
+from robot_utils.mode_catalog import MODE_TRANSITION_TARGETS
 
 COMMAND_PERMISSION_MATRIX: dict[str, tuple[str, ...]] = {
     'set_mode': ('IDLE', 'MANUAL', 'PATROL', 'TRACK', 'SAFE_STOP', 'FAULT'),
@@ -14,22 +15,11 @@ COMMAND_PERMISSION_MATRIX: dict[str, tuple[str, ...]] = {
     'start_patrol': ('IDLE',),
     'pause_patrol': ('PATROL', 'TRACK'),
     'stop_patrol': ('PATROL', 'TRACK', 'MANUAL', 'SAFE_STOP'),
-    'set_param': ('IDLE', 'MANUAL', 'PATROL', 'TRACK'),
     'apply_param_draft': ('IDLE', 'MANUAL', 'PATROL', 'TRACK'),
     'apply_param_profile': ('IDLE', 'MANUAL'),
     'speak_fixed_text': ('BOOT', 'IDLE', 'MANUAL', 'PATROL', 'TRACK', 'SAFE_STOP', 'FAULT'),
     'reset_fault': ('FAULT', 'SAFE_STOP'),
     'save_snapshot': ('IDLE', 'MANUAL', 'PATROL', 'TRACK', 'SAFE_STOP', 'FAULT'),
-}
-
-MODE_TRANSITION_TARGETS: dict[str, tuple[str, ...]] = {
-    'BOOT': ('IDLE',),
-    'IDLE': ('MANUAL', 'PATROL', 'TRACK', 'SAFE_STOP', 'FAULT'),
-    'MANUAL': ('IDLE', 'PATROL', 'TRACK', 'SAFE_STOP', 'FAULT'),
-    'PATROL': ('IDLE', 'MANUAL', 'TRACK', 'SAFE_STOP', 'FAULT'),
-    'TRACK': ('IDLE', 'MANUAL', 'PATROL', 'SAFE_STOP', 'FAULT'),
-    'SAFE_STOP': ('IDLE', 'MANUAL', 'FAULT'),
-    'FAULT': ('IDLE', 'SAFE_STOP'),
 }
 
 COMMAND_TARGET_MODE: dict[str, str] = {
@@ -342,6 +332,8 @@ def command_capability_snapshot(context: CommandContext) -> dict[str, Any]:
         'safeStopRecoverable': bool(context.safe_stop_recoverable),
         'safeStopRequiresManualAck': bool(context.safe_stop_requires_manual_ack),
         'safeStopBlockedReason': context.safe_stop_blocked_reason,
+        'contractSource': 'robot_contracts.command_policy:command_capability_snapshot',
+        'contractAuthority': 'backend_authoritative',
         'sessionRole': str(context.session_role or 'operator'),
         'sessionId': str(context.session_id or ''),
         'sessionWriteEnabled': bool(context.session_write_enabled),

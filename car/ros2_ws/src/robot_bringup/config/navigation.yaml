@@ -9,6 +9,7 @@ robot_navigation:
     path_topic: /robot/navigation/path
     status_topic: /robot/navigation/status
     route_plan_path: __ROUTE_PLAN_PATH__
+    provider_name: simple_nav_provider
     goal_tolerance_m: 0.18
     heading_slowdown_radius_m: 1.2
     max_linear_m_s: 0.26

@@ -1,34 +1,19 @@
 from __future__ import annotations
 
 from robot_contracts.bridge_contract import TCP_PROTOCOL_VERSION
-
-MODE_BOOT = 'BOOT'
-MODE_IDLE = 'IDLE'
-MODE_MANUAL = 'MANUAL'
-MODE_PATROL = 'PATROL'
-MODE_TRACK = 'TRACK'
-MODE_SAFE_STOP = 'SAFE_STOP'
-MODE_FAULT = 'FAULT'
-
-ALL_MODES = {
+from robot_utils.mode_catalog import (
     MODE_BOOT,
+    MODE_FAULT,
     MODE_IDLE,
     MODE_MANUAL,
     MODE_PATROL,
-    MODE_TRACK,
+    MODE_PRIORITY,
     MODE_SAFE_STOP,
-    MODE_FAULT,
-}
+    MODE_SEQUENCE,
+    MODE_TRACK,
+)
 
-MODE_PRIORITY = {
-    MODE_FAULT: 100,
-    MODE_SAFE_STOP: 90,
-    MODE_MANUAL: 80,
-    MODE_TRACK: 70,
-    MODE_PATROL: 60,
-    MODE_IDLE: 10,
-    MODE_BOOT: 0,
-}
+ALL_MODES = set(MODE_SEQUENCE)
 
 CONTROL_SOURCE_IDLE = 'idle'
 CONTROL_SOURCE_MANUAL = 'manual'

@@ -13,12 +13,14 @@ def test_runtime_param_payload_round_trip_preserves_metadata() -> None:
         {'maxLinearSpeed': 0.33},
         active_profile_name='自定义',
         runtime_param_version=7,
-        reason='set_param:maxLinearSpeed',
+        reason='apply_param_draft',
         ts='2026-04-01T00:00:00Z',
         trace_id='trace-1',
         transaction_id='txn-7',
         ack_mode='all',
         expected_consumers=['robot_control', 'robot_decision'],
+        authoritative_keys=['maxLinearSpeed'],
+        ignored_frontend_local_keys=['teleopStep'],
     )
     decoded = loads_runtime_param_payload(dumps_runtime_param_payload(payload))
     assert decoded['params']['maxLinearSpeed'] == 0.33
@@ -28,6 +30,10 @@ def test_runtime_param_payload_round_trip_preserves_metadata() -> None:
     assert decoded['transaction_id'] == 'txn-7'
     assert decoded['ack_mode'] == 'all_consumers'
     assert decoded['expected_consumers'] == ['robot_control', 'robot_decision']
+    assert decoded['authoritative_keys'] == ['maxLinearSpeed']
+    assert decoded['ignored_frontend_local_keys'] == ['teleopStep']
+    assert 'teleopStep' not in decoded['params']
+    assert 'reconnectTimeoutMs' not in decoded['params']
 
 
 def test_runtime_param_apply_result_round_trip_preserves_consumer_ack() -> None:
@@ -56,7 +62,7 @@ def test_runtime_param_payload_rejects_non_array_expected_consumers() -> None:
         'params': {'maxLinearSpeed': 0.33},
         'active_profile_name': '自定义',
         'runtime_param_version': 7,
-        'reason': 'set_param:maxLinearSpeed',
+        'reason': 'apply_param_draft',
         'ts': '2026-04-01T00:00:00Z',
         'expected_consumers': 'robot_control',
     })
@@ -70,7 +76,7 @@ def test_runtime_param_payload_rejects_invalid_runtime_param_version() -> None:
         'params': {'maxLinearSpeed': 0.33},
         'active_profile_name': '自定义',
         'runtime_param_version': 'not-an-int',
-        'reason': 'set_param:maxLinearSpeed',
+        'reason': 'apply_param_draft',
         'ts': '2026-04-01T00:00:00Z',
     })
     with pytest.raises(RuntimeParamTransportError, match='runtime_param_version must be an integer'):

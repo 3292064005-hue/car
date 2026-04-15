@@ -127,12 +127,27 @@ export function safeNowIso(): string {
 }
 
 export function buildSessionExport(logs: LogItem[], history: HistoryState, params: unknown, inspectorTrace: InspectorRecord[] = [], commands: CommandRecord[] = []): string {
-  return toJson({ exportedAt: safeNowIso(), sourceName: 'robot-console', version: '4.0.0', logs, history, params, inspectorTrace, commands });
+  return toJson({
+    kind: 'offline-session-export',
+    exportScope: 'frontend-state-snapshot',
+    exportedAt: safeNowIso(),
+    sourceName: 'robot-console',
+    version: '4.1.0',
+    logs,
+    history,
+    params,
+    inspectorTrace,
+    commands
+  });
 }
 
 export function parseReplaySession(raw: string): ReplaySession | null {
   try {
-    return JSON.parse(raw) as ReplaySession;
+    const parsed = JSON.parse(raw) as ReplaySession;
+    if (!parsed || typeof parsed !== 'object') return null;
+    if (parsed.kind !== 'offline-session-export') return null;
+    if (!Array.isArray(parsed.logs) || !parsed.history || !parsed.params) return null;
+    return parsed;
   } catch {
     return null;
   }

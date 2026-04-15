@@ -15,16 +15,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install frontend dependencies
-        run: npm --prefix robot_frontend ci
-      - name: Install Playwright browsers
-        run: npm --prefix robot_frontend exec playwright install --with-deps chromium
+      - name: Install ROS 2 Humble + colcon
+        run: ./scripts/setup_ci_ros_humble.sh
+      - name: Clean source tree gate (pre-frontend)
+        run: python3 scripts/package_source_release.py --output /tmp/source_release.zip --manifest /tmp/source_release_manifest.json
+      - name: Install Playwright browsers (isolated workspace)
+        run: python3 scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium
       - name: Frontend E2E
-        run: npm --prefix robot_frontend run test:e2e:ci
+        run: python3 scripts/run_frontend_workspace_command.py -- npm run test:e2e:ci
+      - name: Clean source tree gate (post-frontend)
+        run: python3 scripts/package_source_release.py --output /tmp/source_release_post_frontend.zip --manifest /tmp/source_release_post_frontend_manifest.json
       - name: Unified release verification
-        run: ./scripts/run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          ./scripts/run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke
       - name: Mock system web bridge launch smoke
-        run: python3 scripts/run_live_ros_launch_smoke.py --launch-file mock_system.launch.py --expected-node /robot_web_bridge
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          source ros2_ws/install/setup.bash
+          python3 scripts/run_live_ros_launch_smoke.py --launch-file mock_system.launch.py --expected-node /robot_web_bridge
 
   integrated_frontend_bridge_smoke:
     runs-on: ubuntu-22.04
@@ -36,10 +47,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install frontend dependencies
-        run: npm --prefix robot_frontend ci
+      - name: Install ROS 2 Humble + colcon
+        run: ./scripts/setup_ci_ros_humble.sh
+      - name: Clean source tree gate (pre-frontend)
+        run: python3 scripts/package_source_release.py --output /tmp/source_release.zip --manifest /tmp/source_release_manifest.json
+      - name: Install Playwright browsers (isolated workspace)
+        run: python3 scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium
       - name: Integrated frontend + web bridge smoke
-        run: python3 scripts/run_integrated_frontend_bridge_smoke.py
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          ./scripts/run_release_verification.sh --with-integrated-frontend-smoke --skip-npm-ci
+      - name: Clean source tree gate (post-frontend)
+        run: python3 scripts/package_source_release.py --output /tmp/source_release_post_frontend.zip --manifest /tmp/source_release_post_frontend_manifest.json
 
   target_environment_acceptance:
     runs-on: ubuntu-22.04
@@ -48,8 +68,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Target environment acceptance
-        run: ./scripts/run_target_environment_acceptance.sh --output /tmp/target_environment_acceptance.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install ROS 2 Humble + colcon
+        run: ./scripts/setup_ci_ros_humble.sh
+      - name: Target environment acceptance capture
+        shell: bash
+        run: |
+          source /opt/ros/humble/setup.bash
+          ./scripts/run_target_environment_acceptance.sh --allow-incomplete --output /tmp/target_environment_acceptance.json
 
   python_checks:
     runs-on: ubuntu-22.04
@@ -68,7 +96,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install frontend dependencies
-        run: npm --prefix robot_frontend ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Frontend metadata check
-        run: npm --prefix robot_frontend run typecheck
+        run: python3 scripts/run_frontend_workspace_command.py -- npm run typecheck

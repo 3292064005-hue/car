@@ -16,7 +16,7 @@ Options:
   --with-frontend                   Run npm ci/typecheck/build and bundle budget checks.
   --with-ros-smoke                  Build the ROS 2 workspace and run live ROS launch smoke tests.
   --with-integrated-frontend-smoke  Build ROS + frontend and run the integrated frontend/web-bridge smoke.
-  --skip-npm-ci                     Reuse existing frontend dependencies instead of running npm ci.
+  --skip-npm-ci                     Skip source-tree dependency reuse; isolated frontend verification still bootstraps locked deps in a temporary workspace.
   --config-path PATH                Forward config path to validation and smoke commands when supported.
   -h, --help                        Show this help message.
 USAGE
@@ -70,6 +70,8 @@ source "$ROOT_DIR/scripts/release_gate_integrated_frontend_smoke.sh"
 
 cd "$ROOT_DIR"
 release_gate_require_cmd python3
+release_gate_source_ros_setup
+release_gate_prepare_python_env "$ROOT_DIR"
 RESOLVED_CONFIG_ROOT=""
 if [[ -n "$CONFIG_PATH" ]]; then
   RESOLVED_CONFIG_ROOT="$(release_gate_resolve_config_root "$ROOT_DIR" "$CONFIG_PATH")"

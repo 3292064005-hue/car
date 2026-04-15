@@ -1,6 +1,6 @@
 import { BRIDGE_CAPABILITIES, COMMAND_TIMEOUT_MS, DANGEROUS_COMMANDS, PROTOCOL_VERSION, SCHEMA_VERSION } from '@/shared/constants';
 import { uuid } from '@/shared/utils';
-import type { BridgeOutboundEvent, BridgeOutboundPayloadMap, CommandType, EventEnvelope, SourceType } from '@/types/robot';
+import type { BridgeInboundPayloadMap, BridgeOutboundEvent, BridgeOutboundPayloadMap, CommandType, EventEnvelope, InboundEventType, SourceType } from '@/types/robot';
 
 export function createEnvelope<TType extends CommandType>(input: {
   type: TType;
@@ -36,7 +36,7 @@ export function createEnvelope<TType extends CommandType>(input: {
   } as BridgeOutboundEvent;
 }
 
-export function createLegacyEvent<TType extends string, TPayload>(type: TType, payload: TPayload): EventEnvelope<TType, TPayload> {
+export function createMockInboundEvent<TType extends InboundEventType, TPayload extends BridgeInboundPayloadMap[TType]>(type: TType, payload: TPayload): EventEnvelope<TType, TPayload> {
   return {
     eventId: uuid('evt'),
     type,
@@ -45,8 +45,9 @@ export function createLegacyEvent<TType extends string, TPayload>(type: TType, p
     sessionId: 'mock-session',
     seq: 0,
     payload,
-    protocolVersion: '3.0.0',
-    schemaVersion: 'legacy',
+    protocolVersion: PROTOCOL_VERSION,
+    schemaVersion: SCHEMA_VERSION,
+    compatibilityMode: 'native-v4',
     origin: 'mock-transport'
   };
 }

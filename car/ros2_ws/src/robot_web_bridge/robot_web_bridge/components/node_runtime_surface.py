@@ -10,11 +10,77 @@ from .ingress_service import IngressService
 from .runtime_param_coordinator import RuntimeParamCoordinator
 
 
+def build_link_health_snapshot(node: Any) -> dict[str, bool]:
+    """Build a normalized link-health snapshot for command/runtime gating.
+
+    Function:
+        Derive one authoritative view of transport, board, heartbeat, and
+        command-link readiness from the bridge node state.
+
+    Args:
+        node: Bridge node or a compatible test double exposing ``state``.
+
+    Returns:
+        A mapping with boolean fields:
+        ``wifiTransportReady``, ``uartBoardReady``, ``motionHeartbeatReady``,
+        and ``commandLinkReady``.
+
+    Exceptions:
+        None. Missing state structures are treated as empty mappings.
+
+    Boundary behavior:
+        ``commandLinkReady`` is intentionally strict. Wi-Fi transport, UART
+        board connectivity, and motion heartbeat must all be healthy. This
+        prevents ``wifi_ok`` from being treated as a sufficient write-path
+        readiness signal.
+    """
+    state = getattr(node, 'state', None)
+    status = dict(getattr(state, 'system_status', {}) or {})
+    transport = dict(getattr(state, 'transport_stats', {}) or {})
+    bridge = dict(getattr(state, 'bridge_summary', {}) or {})
+    stale_flags = dict(getattr(state, 'stale_flags', {}) or {})
+
+    wifi_transport_ready = bool(status.get('wifi_ok', False) and not stale_flags.get('transport', False))
+    uart_board_ready = bool(status.get('uart_ok', False))
+    motion_heartbeat_ready = bool(
+        bridge.get('connected', False)
+        and not stale_flags.get('bridge', False)
+        and not stale_flags.get('chassis', False)
+        and not transport.get('stale_link', False)
+    )
+    return {
+        'wifiTransportReady': wifi_transport_ready,
+        'uartBoardReady': uart_board_ready,
+        'motionHeartbeatReady': motion_heartbeat_ready,
+        'commandLinkReady': bool(wifi_transport_ready and uart_board_ready and motion_heartbeat_ready),
+    }
+
+
 def build_command_context(node: Any) -> CommandContext:
+    """Build the command-guard context from current bridge state.
+
+    Function:
+        Translate the bridge node state into the contract-layer command context
+        used by command capability evaluation.
+
+    Args:
+        node: Active bridge node.
+
+    Returns:
+        ``CommandContext`` populated from current state.
+
+    Exceptions:
+        None.
+
+    Boundary behavior:
+        ``bridge_connected`` now follows ``commandLinkReady`` from the unified
+        link-health model rather than a permissive Wi-Fi fallback.
+    """
     fault_level = str(node.state.fault.get('level', 'info') or 'info').lower()
+    link_health = build_link_health_snapshot(node)
     return CommandContext(
         current_mode=node.state.mode,
-        bridge_connected=bool((node.state.transport_stats or node.state.bridge_summary).get('connected', node.state.bridge_summary.get('connected', False)) or node.state.system_status.get('wifi_ok', False)),
+        bridge_connected=bool(link_health['commandLinkReady']),
         low_power_warning=bool(node.state.power.get('lowPowerWarning', False) or node.state.system_status.get('low_power_warn', False) or node.state.system_status.get('low_power_stop', False)),
         fault_code=node.state.fault.get('code'),
         fault_level='critical' if fault_level in {'critical', 'fatal', 'error'} else 'warning' if fault_level in {'warning', 'warn'} else 'info',
@@ -36,6 +102,8 @@ def refresh_contract_snapshot(node: Any, summary_data: Mapping[str, Any] | None 
             'safeStopRecoverable': bool(summary_data.get('safe_stop_recoverable', True)),
             'safeStopRequiresManualAck': bool(summary_data.get('safe_stop_requires_manual_ack', False)),
             'safeStopBlockedReason': summary_data.get('safe_stop_blocked_reason'),
+            'contractSource': str(summary_data.get('contract_source', 'robot_contracts.command_policy:command_capability_snapshot') or 'robot_contracts.command_policy:command_capability_snapshot'),
+            'contractAuthority': str(summary_data.get('contract_authority', 'backend_authoritative') or 'backend_authoritative'),
         }
         node.state.contract_snapshot_authoritative = True
         node.state.contract_snapshot_mode = authoritative_mode

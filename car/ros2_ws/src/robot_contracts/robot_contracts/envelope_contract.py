@@ -15,6 +15,7 @@ from robot_contracts.capabilities import (
 from robot_contracts.command_policy import COMMAND_PERMISSION_MATRIX, ContractCheckResult
 from robot_contracts.contract_versions import COMPATIBILITY_MODES, CONTRACT_VERSIONS, DEFAULT_SESSION_ID, PROTOCOL_VERSION, SCHEMA_VERSION, now_iso, resolve_compatibility_mode
 from robot_contracts.runtime_parameters import RUNTIME_PARAM_PROFILES, RUNTIME_PARAM_SCHEMA
+from robot_utils.legacy_compat_audit import record_ack_status_alias_emission
 
 
 class EnvelopeValidationError(ValueError):
@@ -92,6 +93,7 @@ class CommandAck:
             'status': self.status,
             'message': self.message,
         }
+        record_ack_status_alias_emission(lifecycle_status=lifecycle_status or self.status, detail='command_ack.status compatibility alias emitted')
         if lifecycle_status:
             payload['lifecycleStatus'] = lifecycle_status
         if self.detail:

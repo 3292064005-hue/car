@@ -11,7 +11,7 @@
 - `set_mode` / `start_patrol` / `stop_patrol` / `pause_patrol` / `resume_from_safe_stop` / `estop` -> `/robot/set_mode`
 - `teleop_cmd` / `stop_now` -> `/robot/manual/cmd_vel`
 - `speak_fixed_text` -> `/robot/speak_req`
-- `set_param` / `apply_param_draft` / `apply_param_profile` -> 更新 bridge 运行参数镜像、前端 snapshot，并通过 `/robot/runtime_params` 同步到控制/决策消费者；当运行面启用 `runtime_param_require_monitor_ack=true` 时，监控消费者也会进入事务 ACK 聚合，确保 `lowPowerThreshold` 对 readiness/低电量告警的影响被纳入 committed 语义
+- `apply_param_draft` / `apply_param_profile` -> 更新 bridge 运行参数镜像、前端 snapshot，并通过 `/robot/runtime_params` 同步到控制/决策消费者；当运行面启用 `runtime_param_require_monitor_ack=true` 时，监控消费者也会进入事务 ACK 聚合，确保 `lowPowerThreshold` 对 readiness/低电量告警的影响被纳入 committed 语义
 
 ## 启动
 ```bash
@@ -38,5 +38,5 @@ ros2 run robot_web_bridge web_bridge_node
 
 ## Operator-ready 信号
 - `robot_web_bridge` 只有在 websocket listener 真实绑定成功后才会创建并发布 `/robot/web_bridge/ready`。
-- connection payload 额外携带 `operatorReady / operatorReadyReasons / operatorReadyTopic`，用于把 backend-ready 与 operator-ready 分层；若 listener 后续停止，operatorReady 会回落为 `false`。
+- connection payload 额外携带 `gatewayReady / operatorSurfaceReady` 及其 reasons/topic 字段，`operatorReady*` 仅保留为兼容别名；若 listener 后续停止，operator surface ready 会回落为 `false`。
 - bringup 启用 web bridge 时，startup barrier 会继续等待该 ready topic，再把 operator surface 视为可用。

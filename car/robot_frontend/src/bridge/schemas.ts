@@ -1,7 +1,5 @@
 import { z } from 'zod';
 import {
-  commandLifecycleStatusSchema,
-  commandAckStatusSchema,
   COMMAND_TYPES,
   COMPATIBILITY_MODES,
   inboundPayloadSchemas,
@@ -10,7 +8,7 @@ import {
   sourceSchema,
 } from '@/generated/bridgeContract';
 import { PROTOCOL_VERSION, SCHEMA_VERSION } from '@/shared/constants';
-import type { BridgeInboundEvent, BridgeLegacyInboundEvent, BridgeOutboundEvent, InboundEventType } from '@/types/robot';
+import type { BridgeInboundEvent, BridgeOutboundEvent } from '@/types/robot';
 
 const compatibilityModeSchema = z.enum(COMPATIBILITY_MODES);
 
@@ -38,19 +36,6 @@ const envelopeBase = z.object({
   retryPolicy: z.enum(['never', 'once', 'aggressive']).optional(),
 });
 
-const legacyCommandAckPayloadSchema = z.object({
-  commandId: z.string().min(1),
-  status: commandAckStatusSchema,
-  lifecycleStatus: commandLifecycleStatusSchema.optional(),
-  message: z.string().optional(),
-  detail: z.string().optional(),
-});
-
-const legacyPayloadSchemas: Record<InboundEventType, z.ZodTypeAny> = {
-  ...inboundPayloadSchemas,
-  command_ack: legacyCommandAckPayloadSchema,
-};
-
 const formatIssues = (issues: z.ZodIssue[]): string => issues.map((issue) => issue.path.join('.') || issue.message).join('; ');
 
 export type ParseInboundResult =
@@ -60,27 +45,6 @@ export type ParseInboundResult =
 export function parseInboundEvent(raw: unknown): ParseInboundResult {
   const env = envelopeBase.safeParse(raw);
   if (!env.success) {
-    if (typeof raw === 'object' && raw !== null && 'type' in raw && 'payload' in raw) {
-      const legacyType = inboundTypeSchema.safeParse((raw as { type?: unknown }).type);
-      if (!legacyType.success) return { ok: false, reason: 'legacy type 无效' };
-      const parsedPayload = legacyPayloadSchemas[legacyType.data].safeParse((raw as BridgeLegacyInboundEvent).payload);
-      if (!parsedPayload.success) return { ok: false, reason: formatIssues(parsedPayload.error.issues) };
-      return {
-        ok: true,
-        event: {
-          eventId: `legacy-${Math.random().toString(36).slice(2, 10)}`,
-          type: legacyType.data,
-          ts: new Date().toISOString(),
-          source: 'bridge',
-          sessionId: 'legacy-session',
-          seq: 0,
-          payload: parsedPayload.data,
-          protocolVersion: '3.0.0',
-          schemaVersion: 'legacy',
-          origin: 'legacy-bridge',
-        } as BridgeInboundEvent,
-      };
-    }
     return { ok: false, reason: formatIssues(env.error.issues) };
   }
 
@@ -93,6 +57,7 @@ export function parseInboundEvent(raw: unknown): ParseInboundResult {
     ok: true,
     event: {
       ...env.data,
+      compatibilityMode: 'native-v4',
       type: typeResult.data,
       payload: parsedPayload.data,
     } as BridgeInboundEvent,

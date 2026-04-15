@@ -36,7 +36,7 @@ class ControlNode(Node):
         self.declare_parameter('track_angular_scale', 0.85)
         self.declare_parameter('publish_rate_hz', 20.0)
         self.declare_parameter('manual_timeout_sec', 0.6)
-        self.declare_parameter('patrol_timeout_sec', 0.8)
+        self.declare_parameter('navigation_timeout_sec', 0.8)
         self.declare_parameter('track_timeout_sec', 0.5)
         self.declare_parameter('chassis_timeout_sec', 0.8)
         self.declare_parameter('power_timeout_sec', 2.0)
@@ -49,7 +49,6 @@ class ControlNode(Node):
         self.declare_parameter('low_power_angular_scale', 0.8)
 
         self.manual_cmd = TimedTwist()
-        self.patrol_cmd = TimedTwist()
         self.track_cmd = TimedTwist()
         self.navigation_cmd = TimedTwist()
         self.mode: str = MODE_IDLE
@@ -70,7 +69,6 @@ class ControlNode(Node):
         self.summary_pub = self.create_publisher(String, '/robot/control/summary', qos_for('status_summary'))
         self.runtime_param_apply_pub = self.create_publisher(String, RUNTIME_PARAM_APPLY_RESULT_TOPIC, qos_for('status_summary'))
         self.create_subscription(Twist, '/robot/manual/cmd_vel', self.on_manual, qos_for('control_cmd'))
-        self.create_subscription(Twist, '/robot/patrol/cmd_vel', self.on_patrol, qos_for('control_cmd'))
         self.create_subscription(Twist, '/robot/track/cmd_vel', self.on_track, qos_for('control_cmd'))
         self.create_subscription(Twist, '/robot/navigation/cmd_vel', self.on_navigation, qos_for('control_cmd'))
         self.create_subscription(ModeState, '/robot/mode_state', self.on_mode, qos_for('mode_state'))
@@ -91,8 +89,6 @@ class ControlNode(Node):
     def on_manual(self, msg: Twist) -> None:
         self._store_timed_twist(self.manual_cmd, msg)
 
-    def on_patrol(self, msg: Twist) -> None:
-        self._store_timed_twist(self.patrol_cmd, msg)
 
     def on_track(self, msg: Twist) -> None:
         self._store_timed_twist(self.track_cmd, msg)
@@ -224,17 +220,14 @@ class ControlNode(Node):
         source, selected, arbitration = select_command_with_audit(
             self.mode,
             self.manual_cmd,
-            self.patrol_cmd,
             self.track_cmd,
             self.navigation_cmd,
             manual_timeout_sec=float(self.get_parameter('manual_timeout_sec').value),
-            patrol_timeout_sec=float(self.get_parameter('patrol_timeout_sec').value),
             track_timeout_sec=float(self.get_parameter('track_timeout_sec').value),
-            navigation_timeout_sec=float(self.get_parameter('patrol_timeout_sec').value),
+            navigation_timeout_sec=float(self.get_parameter('navigation_timeout_sec').value),
         )
         selected_age = {
             'manual': source_age_sec(self.manual_cmd),
-            'patrol': source_age_sec(self.patrol_cmd),
             'track': source_age_sec(self.track_cmd),
             'navigation': source_age_sec(self.navigation_cmd),
         }.get(source, 0.0)

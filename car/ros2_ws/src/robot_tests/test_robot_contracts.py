@@ -66,7 +66,7 @@ def test_contract_versions_and_transport_versions():
     assert snapshot['tcp_transport'] == 1
     assert snapshot['uart_transport'] == 1
     assert resolve_compatibility_mode('4.1.0') == 'native-v4'
-    assert resolve_compatibility_mode('3.0.0') == 'legacy-v3'
+    assert resolve_compatibility_mode('3.0.0') == 'native-v4'
     assert validate_transport_proto_version(1, transport='tcp') is True
     assert validate_transport_proto_version(2, transport='tcp') is False
 

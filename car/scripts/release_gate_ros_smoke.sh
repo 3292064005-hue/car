@@ -21,6 +21,7 @@ release_gate_ros_smoke_lane() {
   fi
   # shellcheck disable=SC1091
   source ros2_ws/install/setup.bash
+  release_gate_run_py scripts/capture_ros_environment_fingerprint.py --workspace-root ros2_ws --output /tmp/ros_environment_fingerprint.json
   smoke_args=(--launch-package robot_bringup --launch-file minimal_system.launch.py --log-file /tmp/ros_launch_smoke.log)
   mock_smoke_args=(--launch-package robot_bringup --launch-file mock_system.launch.py --launch-arg enable_voice:=false --launch-arg enable_vision:=false --expected-node /robot_bridge_transport --expected-node /robot_bridge_protocol --expected-node /robot_bridge_projection --expected-node /robot_bridge_health --expected-node /robot_control --expected-node /robot_decision --expected-node /robot_web_bridge --log-file /tmp/mock_web_bridge_launch_smoke.log)
   if [[ -n "$resolved_config_root" ]]; then
@@ -29,4 +30,11 @@ release_gate_ros_smoke_lane() {
   fi
   release_gate_run_py scripts/run_live_ros_launch_smoke.py "${smoke_args[@]}"
   release_gate_run_py scripts/run_live_ros_launch_smoke.py "${mock_smoke_args[@]}"
+  if [[ "${RELEASE_GATE_INCLUDE_LEGACY_ROLLBACK_SMOKE:-0}" == "1" ]]; then
+    legacy_smoke_args=(--launch-package robot_bringup --launch-file mock_system.launch.py --launch-arg enable_voice:=false --launch-arg enable_vision:=false --launch-arg bridge_runtime_mode:=legacy_monolith --launch-arg allow_legacy_bridge_runtime:=true --expected-node /robot_bridge --expected-node /robot_control --expected-node /robot_decision --expected-node /robot_web_bridge --log-file /tmp/mock_web_bridge_launch_smoke_legacy.log)
+    if [[ -n "$resolved_config_root" ]]; then
+      legacy_smoke_args+=(--launch-arg "config_root:=$resolved_config_root")
+    fi
+    release_gate_run_py scripts/run_live_ros_launch_smoke.py "${legacy_smoke_args[@]}"
+  fi
 }

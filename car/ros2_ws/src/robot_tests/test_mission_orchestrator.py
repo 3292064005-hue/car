@@ -43,7 +43,6 @@ def test_mission_orchestrator_patrol_follows_navigation_status_without_direct_ve
 
     plan = MissionOrchestrator(node).tick_tasks()
 
-    assert plan.patrol_cmd is None
     assert plan.effect_plan.snapshots == ['navigation:A-01']
     assert plan.transition is None
     assert node.context.active_action_phase == 'running'

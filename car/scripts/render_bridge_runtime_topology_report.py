@@ -13,7 +13,7 @@ for pkg in SRC.iterdir():
         sys.path.insert(0, str(pkg))
 
 from robot_bridge.runtime_factory import runtime_policy_snapshot
-from runtime_surface_inventory import launch_surface_snapshot
+from runtime_surface_inventory import closure_tracks_payload, launch_surface_snapshot
 
 
 def parse_args() -> argparse.Namespace:
@@ -28,8 +28,9 @@ def main() -> int:
     payload = {
         'status': 'ok',
         'report_scope': 'policy_artifact_only',
+        'closureTracks': closure_tracks_payload(declared_complete=True, observed_complete=False),
         'runtime_launch_surface_changed': bool(launch_surface['operatorBarrierEnabled']),
-        'legacy_runtime_removed_from_launch': False,
+        'legacy_runtime_removed_from_launch': bool(launch_surface.get('legacyRuntimeRemovedFromDefaultLaunchSurface', False)),
         'policy': policy,
         'launchSurface': launch_surface,
         'mainline_runtime': policy['preferred_runtime'],
@@ -37,7 +38,7 @@ def main() -> int:
         'legacy_constraints': [
             'legacy runtime remains rollback-only and should not receive new feature work',
             'release verification should treat legacy runtime as compatibility smoke rather than the default feature lane',
-            'launch-surface facts are derived from the current bringup files; legacy fallback remains present until a separate runtime-pruning change lands',
+            'default launch surfaces expose split runtime only; legacy monolith is reachable through the explicit rollback gate',
         ],
     }
     text = json.dumps(payload, ensure_ascii=False, indent=2)

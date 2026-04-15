@@ -137,14 +137,8 @@ class DecisionStateController:
             self._node.last_target = msg
             self._node.context.track_target_valid = bool(getattr(msg, 'detected', False))
             self._node.context.last_target_type = str(getattr(msg, 'target_type', '') or '')
-            patrol_manager = getattr(self._node, 'patrol_manager', None)
-            if self._node.current_mode == MODE_PATROL and bool(getattr(msg, 'detected', False)) and patrol_manager is not None:
-                note_detection = getattr(patrol_manager, 'note_detection', None)
-                if callable(note_detection):
-                    note_detection(
-                        target_type=str(getattr(msg, 'target_type', '') or ''),
-                        confidence=float(getattr(msg, 'confidence', 0.0) or 0.0),
-                    )
+            if self._node.current_mode == MODE_PATROL and bool(getattr(msg, 'detected', False)):
+                self._node.context.last_target_type = str(getattr(msg, 'target_type', '') or '')
             if self._node.current_mode == MODE_TRACK:
                 track_cmd = self._node.track_manager.compute_cmd(msg)
                 min_conf = float(self._node.get_parameter('target_confidence_min').value)

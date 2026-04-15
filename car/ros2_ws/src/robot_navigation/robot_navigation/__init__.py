@@ -9,6 +9,8 @@ from .navigation_model import (
 )
 
 __all__ = [
+    'NavigationProviderContract',
+    'resolve_navigation_provider',
     'Goal2D',
     'NavigationCommand',
     'RoutePlan',
@@ -17,3 +19,5 @@ __all__ = [
     'compute_navigation_command',
     'load_route_plan',
 ]
+
+from .provider_contract import NavigationProviderContract, resolve_navigation_provider

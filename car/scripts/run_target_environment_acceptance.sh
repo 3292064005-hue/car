@@ -25,7 +25,7 @@ Options:
   --hardware-in-loop-report PATH Existing hardware-in-loop acceptance artifact to fold into target acceptance.
   --require-real-board-pass     Fail when the automated real-board probe does not pass.
   --allow-incomplete            Capture an incomplete artifact instead of failing the final acceptance gate.
-  --skip-npm-ci                 Reuse existing frontend dependencies instead of running npm ci.
+  --skip-npm-ci                 Skip source-tree dependency reuse; isolated frontend verification still bootstraps locked deps in a temporary workspace.
   -h, --help                    Show this help message.
 USAGE
 }
