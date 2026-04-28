@@ -1,0 +1,4 @@
+{"angular_z": 0.0, "linear_x": 0.2, "seq": 1, "t": 0.0, "topic": "/robot/cmd_vel_final"}
+{"ack": true, "board_seq": 1, "frame": "cmd_vel", "t": 0.05, "transport": "tcp_json"}
+{"angular_z": 0.3, "linear_x": 0.0, "seq": 2, "t": 0.1, "topic": "/robot/cmd_vel_final"}
+{"ack": true, "board_seq": 2, "frame": "cmd_vel", "t": 0.15, "transport": "tcp_json"}

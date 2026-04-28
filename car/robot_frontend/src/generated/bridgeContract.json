@@ -9,6 +9,7 @@
   "bridgeCapabilities": [
     "command-ack",
     "offline-session-replay",
+    "system-replay-bundle",
     "layout-presets",
     "reports-export",
     "protocol-versioning",
@@ -31,6 +32,7 @@
   "canonicalBridgeCapabilities": [
     "command-ack",
     "offline-session-replay",
+    "system-replay-bundle",
     "layout-presets",
     "reports-export",
     "protocol-versioning",
@@ -65,6 +67,16 @@
     "speak_fixed_text",
     "reset_fault",
     "save_snapshot"
+  ],
+  "commandLifecyclePhases": [
+    "client_sent",
+    "api_accepted",
+    "bridge_queued",
+    "handler_dispatched",
+    "ros_accepted",
+    "business_completed",
+    "failed",
+    "timed_out"
   ],
   "inboundEventTypes": [
     "snapshot",

@@ -69,6 +69,9 @@ class DecisionProjection:
             'navigation_progress': self._node.context.navigation_progress,
             'runtime_supervision_state': self._node.context.runtime_supervision_state,
             'runtime_supervision_reasons': list(self._node.context.runtime_supervision_reasons),
+            'runtime_orchestration_state': self._node.context.runtime_orchestration_state,
+            'runtime_orchestration_reason': self._node.context.runtime_orchestration_reason,
+            'runtime_orchestration_required_missing': list(self._node.context.runtime_orchestration_required_missing),
         }
 
     def publish_summary(self) -> None:

@@ -121,12 +121,42 @@ release_gate_ensure_workspace_install_ready() {
   fi
 }
 
+
+release_gate_nav2_external_backend_smoke_required() {
+  local repo_root="$1"
+  local config_root="$2"
+  python3 - "$repo_root" "$config_root" <<'PYCODE'
+from pathlib import Path
+import sys
+
+repo_root = Path(sys.argv[1])
+config_root = Path(sys.argv[2])
+sys.path.insert(0, str(repo_root / 'ros2_ws' / 'src' / 'robot_navigation'))
+sys.path.insert(0, str(repo_root / 'ros2_ws' / 'src' / 'robot_utils'))
+from robot_utils.config_loader import load_structured_file
+from robot_navigation.navigation_acceptance import nav2_external_backend_smoke_required, resolve_nav2_acceptance_artifact_paths
+
+path = config_root / 'navigation.yaml'
+payload = load_structured_file(str(path), {}) if path.is_file() else {}
+config = payload.get('robot_navigation', payload) if isinstance(payload, dict) else {}
+params = config.get('ros__parameters', {}) if isinstance(config, dict) and isinstance(config.get('ros__parameters', {}), dict) else {}
+if nav2_external_backend_smoke_required(params):
+    print(resolve_nav2_acceptance_artifact_paths(params, config_root=config_root, runtime_dir='/tmp/inspection_robot').get('external_backend_smoke', ''))
+PYCODE
+}
+
 release_gate_run_common_checks() {
   local config_path="$1"
   release_gate_run_py scripts/generate_frontend_contract_artifacts.py
   release_gate_run_py scripts/generate_governance_artifacts.py
   release_gate_run_py -m pytest -q ros2_ws/src/robot_tests
   release_gate_run_py scripts/check_contract_consistency.py
+  release_gate_run_py scripts/check_command_interface_manifest.py
+  release_gate_run_py scripts/check_feature_admission.py
+  release_gate_run_py scripts/check_capability_registry_consistency.py
+  release_gate_run_py scripts/check_lane_implementation_alignment.py
+  release_gate_run_py scripts/check_validation_evidence_binding.py
+  release_gate_run_py scripts/check_evidence_layering.py
   release_gate_run_py scripts/check_release_gate_consistency.py
   release_gate_run_py scripts/check_python_install_smoke.py
   if [[ -n "$config_path" ]]; then
@@ -136,13 +166,42 @@ release_gate_run_common_checks() {
   fi
   release_gate_run_py scripts/check_ros2_package_metadata.py
   release_gate_run_py scripts/check_embedded_source_sync.py
-  release_gate_run_py scripts/package_source_release.py --output /tmp/inspection_robot_source_release.zip --manifest /tmp/inspection_robot_source_release_manifest.json --require-clean-worktree
+  release_gate_run_py scripts/package_source_release.py --output /tmp/inspection_robot_source_release.zip --manifest /tmp/inspection_robot_source_release_manifest.json --require-clean-worktree --clean-transient-source-artifacts
+  if [[ -n "$config_path" ]]; then
+    release_gate_run_py scripts/resolve_runtime_surface_config.py --profile mock --surface frontend --config-path "$config_path" --output /tmp/runtime_surface_frontend.json
+    release_gate_run_py scripts/resolve_runtime_surface_config.py --profile mock --surface backend --config-path "$config_path" --output /tmp/runtime_surface_backend.json
+    release_gate_run_py scripts/resolve_runtime_surface_config.py --profile hardware --surface backend --config-path "$config_path" --output /tmp/runtime_surface_hardware_backend.json
+  else
+    release_gate_run_py scripts/resolve_runtime_surface_config.py --profile mock --surface frontend --output /tmp/runtime_surface_frontend.json
+    release_gate_run_py scripts/resolve_runtime_surface_config.py --profile mock --surface backend --output /tmp/runtime_surface_backend.json
+    release_gate_run_py scripts/resolve_runtime_surface_config.py --profile hardware --surface backend --output /tmp/runtime_surface_hardware_backend.json
+  fi
   release_gate_run_py scripts/render_profile_report.py minimal --output /tmp/profile_minimal.json
   release_gate_run_py scripts/render_bridge_runtime_topology_report.py --output /tmp/bridge_runtime_topology_report.json
   release_gate_run_py scripts/render_runtime_signal_matrix_report.py --output /tmp/runtime_signal_matrix_report.json
+  release_gate_run_py scripts/render_repository_boundary_report.py --output /tmp/repository_boundary_report.json
+  release_gate_run_py scripts/render_feature_admission_report.py --output /tmp/feature_admission_report.json
+  release_gate_run_py scripts/render_capability_ownership_report.py >/tmp/capability_ownership_report.json
+  release_gate_run_py scripts/render_lane_lifecycle_report.py >/tmp/lane_lifecycle_report.json
+  release_gate_run_py scripts/render_runtime_topology_manifest.py --profile mock --output /tmp/runtime_topology_manifest.json
+  release_gate_run_py scripts/render_system_replay_report.py >/tmp/system_replay_report.json
+  release_gate_run_py scripts/check_report_surface_closure.py
   release_gate_run_py scripts/render_legacy_compatibility_report.py --output /tmp/legacy_compatibility_report.json
+  mkdir -p /tmp/inspection_robot
+  release_gate_run_py scripts/render_nav2_simulation_smoke.py --output /tmp/inspection_robot/nav2_simulation_smoke.json
+  release_gate_run_py scripts/render_nav2_provider_switch_smoke.py --output /tmp/inspection_robot/nav2_provider_switch_smoke.json
+  release_gate_run_py scripts/render_nav2_operator_docs_review.py --output /tmp/inspection_robot/nav2_operator_docs_review.json
+  local external_backend_smoke_output=""
+  if [[ -n "$config_path" ]]; then
+    external_backend_smoke_output="$(release_gate_nav2_external_backend_smoke_required "$(pwd)" "$(release_gate_resolve_config_root "$(pwd)" "$config_path")")"
+  fi
+  if [[ -n "$external_backend_smoke_output" ]]; then
+    mkdir -p "$(dirname "$external_backend_smoke_output")"
+    release_gate_run_py scripts/render_nav2_external_backend_smoke.py --output "$external_backend_smoke_output"
+  fi
   release_gate_run_py scripts/generate_evidence_report.py --runtime-dir /tmp/inspection_robot --metrics /tmp/inspection_robot/metrics.json --evidence /tmp/inspection_robot/evidence_index.json --output /tmp/evidence_report.json
   release_gate_run_py scripts/render_acceptance_report.py --runtime-dir /tmp/inspection_robot --metrics /tmp/inspection_robot/metrics.json --evidence /tmp/inspection_robot/evidence_index.json --output /tmp/acceptance_report.json
   release_gate_run_py scripts/check_embedded_host_builds.py
+  release_gate_run_py scripts/check_hardware_runtime_separation.py
   release_gate_run_py scripts/check_web_bridge_payload_budget.py
 }

@@ -10,6 +10,7 @@ from robot_decision.decision_ingress import (
     QrcodeIntent,
     RequestModeChangeIntent,
     ResetFaultIntent,
+    RuntimeOrchestrationIntent,
     RuntimeParamsIntent,
     RuntimeSupervisionIntent,
 )
@@ -20,6 +21,7 @@ from robot_decision.intent_reducer import DecisionIntentReducer
 from robot_decision.mission_orchestrator import MissionOrchestrator, MissionTickPlan
 from robot_decision.mode_guard import ModeGuard
 from robot_decision.runtime_param_adapter import RuntimeParamAdapter
+from robot_decision.runtime_orchestration_controller import RuntimeOrchestrationController
 from robot_utils.constants import MODE_BOOT, MODE_PATROL, MODE_SAFE_STOP
 
 
@@ -122,6 +124,9 @@ class DecisionAppService:
             return None
         if kind == 'runtime_supervision':
             self._handle_runtime_supervision_now(payload)
+            return None
+        if kind == 'runtime_orchestration':
+            self._handle_runtime_orchestration_now(payload)
             return None
         if kind == 'chassis_state':
             self._handle_chassis_state_now(payload)
@@ -233,6 +238,12 @@ class DecisionAppService:
         if self.intent_reducer_enabled() and self.submit_intent('runtime_supervision', intent):
             return
         self._handle_runtime_supervision_now(intent)
+
+    def on_runtime_orchestration(self, msg: Any) -> None:
+        intent = self._ingress.parse_runtime_orchestration_msg(msg)
+        if self.intent_reducer_enabled() and self.submit_intent('runtime_orchestration', intent):
+            return
+        self._handle_runtime_orchestration_now(intent)
 
     def on_chassis_state(self, msg: Any) -> None:
         parsed = self._ingress.parse_chassis_state_msg(msg)
@@ -366,16 +377,44 @@ class DecisionAppService:
 
     def _handle_runtime_supervision_now(self, payload: RuntimeSupervisionIntent | Any) -> None:
         intent = payload if isinstance(payload, RuntimeSupervisionIntent) else self._ingress.parse_runtime_supervision_msg(payload)
-        self._state_controller.cache_runtime_supervision(intent.payload)
+        orchestration = getattr(self._node, 'runtime_orchestration', None)
+        if orchestration is None:
+            orchestration = RuntimeOrchestrationController(self._node)
+        orchestration_decision = orchestration.evaluate(intent.payload)
+        self._state_controller.cache_runtime_supervision(intent.payload, orchestration_decision=orchestration_decision)
         state = str(intent.payload.get('state', '') or '')
         reasons = intent.payload.get('reasons', [])
         primary_reason = str(reasons[0] if isinstance(reasons, list) and reasons else state or 'runtime_supervision')
-        if state in {'faulted', 'unavailable'} and self._node.current_mode not in {MODE_BOOT, MODE_SAFE_STOP}:
+        if orchestration_decision.orchestration_state in {'degraded', 'recovering', 'blocked'}:
+            self._side_effects.publish_event('runtime_orchestration', orchestration_decision.operator_event_name, orchestration_decision.operator_event_detail, level='warn' if orchestration_decision.orchestration_state in {'recovering', 'blocked'} else 'info')
+        should_force_safe_stop = state in {'faulted', 'unavailable'} and self._node.current_mode not in {MODE_BOOT, MODE_SAFE_STOP}
+        transition_reason = primary_reason
+        if orchestration_decision.should_force_safe_stop:
+            should_force_safe_stop = True
+            transition_reason = orchestration_decision.transition_reason or primary_reason
+        if should_force_safe_stop:
             previous_mode = self._node.current_mode
-            changed = self._state_controller.apply_mode_transition(MODE_SAFE_STOP, 'runtime_supervisor', primary_reason)
+            changed = self._state_controller.apply_mode_transition(MODE_SAFE_STOP, 'runtime_supervisor', transition_reason)
             if changed:
-                self._side_effects.publish_mode_transition_event(requested_by='runtime_supervisor', reason=primary_reason)
-                self._side_effects.publish_event('runtime_supervision', state, primary_reason, level='warn')
+                self._side_effects.publish_mode_transition_event(requested_by='runtime_supervisor', reason=transition_reason)
+                self._side_effects.publish_event('runtime_supervision', state or 'runtime_orchestration', transition_reason, level='warn')
+                self._emit_mode_transition_side_effects(previous_mode=previous_mode, new_mode=self._node.current_mode)
+        self._side_effects.notify_state_change()
+
+    def _handle_runtime_orchestration_now(self, payload: RuntimeOrchestrationIntent | Any) -> None:
+        intent = payload if isinstance(payload, RuntimeOrchestrationIntent) else self._ingress.parse_runtime_orchestration_msg(payload)
+        orchestration_payload = intent.payload
+        self._state_controller.cache_runtime_orchestration(orchestration_payload)
+        orchestration_state = str(orchestration_payload.get('state', '') or '')
+        orchestration_reason = str(orchestration_payload.get('reason', '') or '')
+        if orchestration_state in {'degraded', 'recovering', 'shutting_down'}:
+            self._side_effects.publish_event('runtime_orchestration', orchestration_state, orchestration_reason or orchestration_state, level='warn' if orchestration_state != 'degraded' else 'info')
+        if orchestration_state in {'recovering', 'shutting_down'} and self._node.current_mode not in {MODE_BOOT, MODE_SAFE_STOP}:
+            previous_mode = self._node.current_mode
+            changed = self._state_controller.apply_mode_transition(MODE_SAFE_STOP, 'runtime_orchestration_manager', orchestration_reason or orchestration_state)
+            if changed:
+                self._side_effects.publish_mode_transition_event(requested_by='runtime_orchestration_manager', reason=orchestration_reason or orchestration_state)
+                self._side_effects.publish_event('runtime_orchestration', orchestration_state, orchestration_reason or orchestration_state, level='warn')
                 self._emit_mode_transition_side_effects(previous_mode=previous_mode, new_mode=self._node.current_mode)
         self._side_effects.notify_state_change()
 
@@ -406,6 +445,9 @@ class DecisionAppService:
         plan: MissionTickPlan = self._mission_orchestrator.tick_tasks()
         if plan.track_cmd is not None:
             self._side_effects.publish_track_cmd(plan.track_cmd)
+        if plan.navigation_route_name:
+            self._side_effects.publish_navigation_route(plan.navigation_route_name)
+            self._side_effects.publish_event('mission', 'stage_advance', f'route={plan.navigation_route_name}', level='info')
         self._side_effects.emit_effect_plan(plan.effect_plan)
         if plan.transition is not None:
             previous_mode = self._node.current_mode
@@ -444,6 +486,20 @@ class DecisionAppService:
         if previous_mode == MODE_PATROL and new_mode != MODE_PATROL:
             self._side_effects.publish_navigation_cancel(reason=f'patrol_exit:{new_mode}')
         if previous_mode != MODE_PATROL and new_mode == MODE_PATROL:
-            route_name = str(self._node.get_parameter('default_patrol_route').value or 'default')
+            active_mission = getattr(self._node, 'active_mission_entry', None)
+            route_name = ''
+            if active_mission is not None:
+                route_name = str(getattr(active_mission, 'route_name', '') or '')
+            if not route_name:
+                route_name = str(getattr(self._node.context, 'planned_route_name', '') or '')
+            if not route_name:
+                route_name = str(self._node.get_parameter('default_patrol_route').value or 'default')
             self._side_effects.publish_navigation_route(route_name)
-            self._side_effects.publish_event('navigation', 'route_start', f'patrol delegated to navigation route={route_name}', level='info')
+            mission_id = str(getattr(self._node.context, 'active_mission_id', '') or '')
+            task_profile = str(getattr(self._node.context, 'active_task_profile', '') or '')
+            detail = f'patrol delegated to navigation route={route_name}'
+            if mission_id:
+                detail += f' mission={mission_id}'
+            if task_profile:
+                detail += f' taskProfile={task_profile}'
+            self._side_effects.publish_event('navigation', 'route_start', detail, level='info')

@@ -14,6 +14,7 @@ from typing import Any, Iterable, Mapping
 
 from robot_bringup.config_resolution import resolve_bringup_config
 from robot_contracts.bridge_contract import PROTOCOL_VERSION, TCP_PROTOCOL_VERSION, UART_PROTOCOL_VERSION, SCHEMA_VERSION
+from robot_utils.repository_identity import repository_identity
 
 ACCEPTANCE_SCHEMA_VERSION = 2
 
@@ -41,11 +42,62 @@ def _hash_text_parts(parts: Iterable[str]) -> str:
     return digest.hexdigest()
 
 
+def _repo_relative_path(path: Path, *, repo_root: Path) -> str | None:
+    try:
+        return str(path.resolve().relative_to(repo_root.resolve()))
+    except ValueError:
+        return None
+
+
+def _acceptance_identity_exclude_rel_paths(*, repo_root: str | Path, config_path: str | Path | None = None) -> tuple[str, ...]:
+    """Return repository-relative files excluded from acceptance source identity.
+
+    Acceptance artifacts committed under the config root are runtime evidence,
+    not part of the declarative source/config surface they attest to. Keeping
+    them inside the source-tree hash would make committed artifacts
+    self-invalidating as soon as they are refreshed.
+    """
+    repo = Path(repo_root).resolve()
+    exclude: set[str] = {'artifacts/validation/VALIDATION_EVIDENCE.md'}
+    # HIL evidence artifacts describe an execution against the source tree; they
+    # are not themselves part of the code/config/protocol surface being attested.
+    # Including them would make the HIL report self-referential and unstable as
+    # soon as the report is refreshed.
+    hil_dir = repo / 'artifacts' / 'hardware_in_loop'
+    if hil_dir.is_dir():
+        for path in sorted(hil_dir.rglob('*')):
+            if not path.is_file():
+                continue
+            rel = _repo_relative_path(path, repo_root=repo)
+            if rel:
+                exclude.add(rel)
+    resolved = resolve_bringup_config(str(config_path) if config_path else None)
+    for path in sorted(resolved.config_root.glob('*acceptance*.json')):
+        if not path.is_file():
+            continue
+        rel = _repo_relative_path(path, repo_root=repo)
+        if rel:
+            exclude.add(rel)
+    return tuple(sorted(exclude))
+
+
+def _portable_repo_path(path: Path, *, repo_root: Path) -> str:
+    rel = _repo_relative_path(path, repo_root=repo_root)
+    return rel if rel is not None else str(path.resolve())
+
+
 def config_digest(config_path: str | Path | None = None) -> str:
+    """Hash the declarative bringup configuration surface.
+
+    Generated JSON evidence files may live beside the YAML config tree. They are
+    not part of the declarative runtime configuration and must not be folded
+    into the identity digest, otherwise acceptance artifacts become
+    self-invalidating as soon as they are written.
+    """
     resolved = resolve_bringup_config(str(config_path) if config_path else None)
     files = sorted(
         path for path in resolved.config_root.rglob('*')
-        if path.is_file() and path.suffix.lower() in {'.yaml', '.yml', '.json'}
+        if path.is_file() and path.suffix.lower() in {'.yaml', '.yml'}
     )
     digest = hashlib.sha256()
     for path in files:
@@ -56,19 +108,24 @@ def config_digest(config_path: str | Path | None = None) -> str:
     return digest.hexdigest()
 
 
-def source_release_identity(repo_root: str | Path) -> dict[str, Any]:
+def source_release_identity(repo_root: str | Path, *, config_path: str | Path | None = None) -> dict[str, Any]:
     repo = Path(repo_root)
-    manifest_path = repo / 'workspace_manifest.json'
+    identity = repository_identity(repo, exclude_rel_paths=_acceptance_identity_exclude_rel_paths(repo_root=repo, config_path=config_path))
     return {
-        'workspaceManifestPath': str(manifest_path),
-        'workspaceManifestSha256': _sha256_path(manifest_path) if manifest_path.is_file() else '',
+        'workspaceManifestPath': _portable_repo_path(Path(identity['workspaceManifestPath']), repo_root=repo.resolve()),
+        'workspaceManifestSha256': identity['workspaceManifestSha256'],
+        'workspaceId': identity['workspaceId'],
+        'artifactId': identity['artifactId'],
+        'sourceTreeSha256': identity['sourceTreeSha256'],
+        'layoutMode': identity['layoutMode'],
+        'includedFileCount': identity['includedFileCount'],
     }
 
 
 def protocol_identity(repo_root: str | Path) -> dict[str, Any]:
     repo = Path(repo_root)
-    tcp_doc = repo / 'docs/04_tcp_json_protocol.md'
-    uart_doc = repo / 'docs/05_uart_binary_protocol.md'
+    tcp_doc = repo / 'docs/protocols/tcp-json.md'
+    uart_doc = repo / 'docs/protocols/uart-binary.md'
     return {
         'webProtocolVersion': PROTOCOL_VERSION,
         'schemaVersion': SCHEMA_VERSION,
@@ -90,13 +147,14 @@ def build_verification_identity(
     resolved = resolve_bringup_config(str(config_path) if config_path else None)
     hardware = {k: v for k, v in dict(hardware_identity or {}).items() if v not in (None, '', [], {})}
     firmware = {k: v for k, v in dict(firmware_identity or {}).items() if v not in (None, '', [], {})}
+    repo = Path(repo_root).resolve()
     return {
         'profileName': str(profile_name or 'target_acceptance'),
-        'configRoot': str(resolved.config_root),
-        'launchProfilesPath': str(resolved.launch_profiles_path),
+        'configRoot': _portable_repo_path(resolved.config_root, repo_root=repo),
+        'launchProfilesPath': _portable_repo_path(resolved.launch_profiles_path, repo_root=repo),
         'configDigest': config_digest(config_path),
         'protocolIdentity': protocol_identity(repo_root),
-        'sourceReleaseIdentity': source_release_identity(repo_root),
+        'sourceReleaseIdentity': source_release_identity(repo_root, config_path=config_path),
         'hardwareIdentity': hardware,
         'firmwareIdentity': firmware,
     }
@@ -131,7 +189,7 @@ def validate_acceptance_artifact(
     protocol = verification.get('protocolIdentity', {}) if isinstance(verification.get('protocolIdentity', {}), Mapping) else {}
     errors.extend(f'protocol_identity.{key}_missing' for key in _required_keys(protocol, ('webProtocolVersion', 'schemaVersion', 'tcpProtocolVersion', 'uartProtocolVersion', 'tcpProtocolDocSha256', 'uartProtocolDocSha256')))
     source_release = verification.get('sourceReleaseIdentity', {}) if isinstance(verification.get('sourceReleaseIdentity', {}), Mapping) else {}
-    errors.extend(f'source_release_identity.{key}_missing' for key in _required_keys(source_release, ('workspaceManifestPath', 'workspaceManifestSha256')))
+    errors.extend(f'source_release_identity.{key}_missing' for key in _required_keys(source_release, ('workspaceManifestPath', 'workspaceManifestSha256', 'workspaceId', 'artifactId', 'sourceTreeSha256', 'layoutMode')))
     if require_hardware_identity:
         hardware = verification.get('hardwareIdentity', {}) if isinstance(verification.get('hardwareIdentity', {}), Mapping) else {}
         errors.extend(f'hardware_identity.{key}_missing' for key in _required_keys(hardware, ('boardId', 'boardClass')))
@@ -235,6 +293,7 @@ def acceptance_identity_match(*artifacts: Mapping[str, Any]) -> tuple[bool, list
     ref_uart_doc = str(ref_proto.get('uartProtocolDocSha256', '') or '')
     ref_source = reference.get('sourceReleaseIdentity', {}) if isinstance(reference.get('sourceReleaseIdentity', {}), Mapping) else {}
     ref_manifest_sha = str(ref_source.get('workspaceManifestSha256', '') or '')
+    ref_source_sha = str(ref_source.get('sourceTreeSha256', '') or '')
     for idx, identity in enumerate(identities[1:], start=1):
         if str(identity.get('configDigest', '') or '') != ref_cfg:
             errors.append(f'config_digest_mismatch:{idx}')
@@ -246,6 +305,8 @@ def acceptance_identity_match(*artifacts: Mapping[str, Any]) -> tuple[bool, list
         source = identity.get('sourceReleaseIdentity', {}) if isinstance(identity.get('sourceReleaseIdentity', {}), Mapping) else {}
         if str(source.get('workspaceManifestSha256', '') or '') != ref_manifest_sha:
             errors.append(f'source_release_identity_mismatch:{idx}')
+        if str(source.get('sourceTreeSha256', '') or '') != ref_source_sha:
+            errors.append(f'source_tree_identity_mismatch:{idx}')
     return len(errors) == 0, errors
 
 
@@ -278,6 +339,10 @@ def acceptance_identity_matches_reference(
     source = verification.get('sourceReleaseIdentity', {}) if isinstance(verification.get('sourceReleaseIdentity', {}), Mapping) else {}
     if str(source.get('workspaceManifestSha256', '') or '') != str(ref_source.get('workspaceManifestSha256', '') or ''):
         errors.append('source_release_identity_mismatch:reference')
+    if str(source.get('sourceTreeSha256', '') or '') != str(ref_source.get('sourceTreeSha256', '') or ''):
+        errors.append('source_tree_identity_mismatch:reference')
+    if str(source.get('layoutMode', '') or '') != str(ref_source.get('layoutMode', '') or ''):
+        errors.append('source_release_layout_mismatch:reference')
     if require_hardware_identity:
         ref_hw = reference_identity.get('hardwareIdentity', {}) if isinstance(reference_identity.get('hardwareIdentity', {}), Mapping) else {}
         hw = verification.get('hardwareIdentity', {}) if isinstance(verification.get('hardwareIdentity', {}), Mapping) else {}

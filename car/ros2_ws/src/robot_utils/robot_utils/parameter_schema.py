@@ -77,6 +77,76 @@ def _ensure_non_empty_string(value: Any, *, context: str) -> None:
         raise ConfigValidationError(f'{context} must be a non-empty string')
 
 
+
+
+def _ensure_positive_number(value: Any, *, context: str) -> None:
+    if float(value) <= 0.0:
+        raise ConfigValidationError(f'{context} must be > 0')
+
+
+def _ensure_non_negative_number(value: Any, *, context: str) -> None:
+    if float(value) < 0.0:
+        raise ConfigValidationError(f'{context} must be >= 0')
+
+
+def validate_navigation_controller_params(params: dict[str, Any], *, context: str) -> dict[str, Any]:
+    if 'goal_tolerance_m' in params:
+        _ensure_positive_number(params.get('goal_tolerance_m'), context=f'{context}.goal_tolerance_m')
+    heading_angle = float(params.get('heading_slowdown_angle_rad', 0.0) or 0.0)
+    heading_legacy = float(params.get('heading_slowdown_radius_m', 0.0) or 0.0)
+    if 'heading_slowdown_angle_rad' in params or 'heading_slowdown_radius_m' in params:
+        if heading_angle <= 0.0 and heading_legacy <= 0.0:
+            raise ConfigValidationError(f'{context}.heading_slowdown_angle_rad or {context}.heading_slowdown_radius_m must be > 0')
+    if 'final_yaw_tolerance_rad' in params:
+        _ensure_positive_number(params.get('final_yaw_tolerance_rad'), context=f'{context}.final_yaw_tolerance_rad')
+    if 'rotate_in_place_threshold_rad' in params:
+        _ensure_positive_number(params.get('rotate_in_place_threshold_rad'), context=f'{context}.rotate_in_place_threshold_rad')
+    if 'max_linear_m_s' in params:
+        _ensure_positive_number(params.get('max_linear_m_s'), context=f'{context}.max_linear_m_s')
+    if 'max_angular_rad_s' in params:
+        _ensure_positive_number(params.get('max_angular_rad_s'), context=f'{context}.max_angular_rad_s')
+    if 'angular_gain' in params:
+        _ensure_positive_number(params.get('angular_gain'), context=f'{context}.angular_gain')
+    if 'linear_gain' in params:
+        _ensure_positive_number(params.get('linear_gain'), context=f'{context}.linear_gain')
+    if 'control_rate_hz' in params:
+        _ensure_positive_number(params.get('control_rate_hz'), context=f'{context}.control_rate_hz')
+    if 'goal_pose_terminal_yaw_enabled' in params:
+        _ensure_bool(params.get('goal_pose_terminal_yaw_enabled'), context=f'{context}.goal_pose_terminal_yaw_enabled')
+    return params
+
+
+def validate_vision_runtime_params(params: dict[str, Any], *, context: str) -> dict[str, Any]:
+    if 'poll_period' in params:
+        _ensure_positive_number(params.get('poll_period'), context=f'{context}.poll_period')
+    if 'snapshot_async_queue_max' in params:
+        _ensure_positive_number(params.get('snapshot_async_queue_max'), context=f'{context}.snapshot_async_queue_max')
+    if 'snapshot_result_drain_max' in params:
+        _ensure_positive_number(params.get('snapshot_result_drain_max'), context=f'{context}.snapshot_result_drain_max')
+    if 'stable_detection_hits' in params:
+        _ensure_positive_number(params.get('stable_detection_hits'), context=f'{context}.stable_detection_hits')
+    if 'stable_detection_misses' in params:
+        _ensure_non_negative_number(params.get('stable_detection_misses'), context=f'{context}.stable_detection_misses')
+    if 'tracker_max_center_jump' in params:
+        _ensure_positive_number(params.get('tracker_max_center_jump'), context=f'{context}.tracker_max_center_jump')
+    if 'tracker_max_area_ratio_delta' in params and float(params.get('tracker_max_area_ratio_delta')) < 1.0:
+        raise ConfigValidationError(f'{context}.tracker_max_area_ratio_delta must be >= 1.0')
+    if 'qrcode_cooldown_sec' in params:
+        _ensure_non_negative_number(params.get('qrcode_cooldown_sec'), context=f'{context}.qrcode_cooldown_sec')
+    if 'color_detection_cooldown_sec' in params:
+        _ensure_non_negative_number(params.get('color_detection_cooldown_sec'), context=f'{context}.color_detection_cooldown_sec')
+    if 'color_snapshot_min_interval_sec' in params:
+        _ensure_non_negative_number(params.get('color_snapshot_min_interval_sec'), context=f'{context}.color_snapshot_min_interval_sec')
+    if 'stream_fault_after_misses' in params:
+        _ensure_positive_number(params.get('stream_fault_after_misses'), context=f'{context}.stream_fault_after_misses')
+    if 'capture_reconnect_backoff_sec' in params:
+        _ensure_non_negative_number(params.get('capture_reconnect_backoff_sec'), context=f'{context}.capture_reconnect_backoff_sec')
+    if 'capture_reopen_after_misses' in params:
+        _ensure_positive_number(params.get('capture_reopen_after_misses'), context=f'{context}.capture_reopen_after_misses')
+    if 'capture_ipc_queue_max' in params:
+        _ensure_positive_number(params.get('capture_ipc_queue_max'), context=f'{context}.capture_ipc_queue_max')
+    return params
+
 def validate_patrol_config(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ConfigValidationError('patrol config must be a mapping')

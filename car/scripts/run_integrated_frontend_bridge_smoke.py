@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Run an integrated live smoke test for mock_system + robot_web_bridge + frontend.
+"""Run an integrated live smoke test for mock_system + operator API facade + frontend.
 
 This script assumes the caller has already sourced ROS 2 Humble and the workspace
 install setup, and that frontend browser smoke can run from an isolated
 temporary workspace copy rather than mutating the canonical source tree. It
-launches the mock ROS graph, waits for expected nodes and the WebSocket endpoint,
-then executes the Playwright live-bridge smoke suite against the real bridge.
+launches the mock ROS graph, waits for expected nodes plus both bridge/API
+surfaces, then executes the Playwright live-operator smoke suite against the
+authoritative API facade rather than the direct read-only bridge websocket.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import shlex
 import signal
@@ -21,6 +23,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Iterable
+from urllib.request import urlopen
 
 DEFAULT_EXPECTED_READY_TOPICS = [
     '/robot/web_bridge/ready',
@@ -62,13 +65,7 @@ def _run_graph_command(*args: str, timeout_sec: float) -> set[str]:
     return _parse_graph_items(completed.stdout)
 
 
-def _poll_for_expected_nodes(
-    *,
-    process: subprocess.Popen[str],
-    expected_nodes: set[str],
-    deadline_monotonic: float,
-    graph_timeout_sec: float,
-) -> set[str]:
+def _poll_for_expected_nodes(*, process: subprocess.Popen[str], expected_nodes: set[str], deadline_monotonic: float, graph_timeout_sec: float) -> set[str]:
     last_nodes: set[str] = set()
     while time.monotonic() < deadline_monotonic:
         if process.poll() is not None:
@@ -85,29 +82,7 @@ def _poll_for_expected_nodes(
     raise IntegratedSmokeError(f'timed out waiting for ROS graph readiness; missing nodes={missing}')
 
 
-def _poll_for_expected_topics(
-    *,
-    process: subprocess.Popen[str],
-    expected_topics: set[str],
-    deadline_monotonic: float,
-    graph_timeout_sec: float,
-) -> set[str]:
-    """Poll ROS graph topics until all operator-ready topics are advertised.
-
-    Args:
-        process: Running launch process.
-        expected_topics: Topic names that must exist before the operator path is
-            treated as ready.
-        deadline_monotonic: Absolute startup deadline.
-        graph_timeout_sec: Timeout for one ``ros2 topic list`` invocation.
-
-    Returns:
-        Observed topic set containing all expected topics.
-
-    Raises:
-        IntegratedSmokeError: When the launch exits early or the deadline
-            expires before all ready topics appear.
-    """
+def _poll_for_expected_topics(*, process: subprocess.Popen[str], expected_topics: set[str], deadline_monotonic: float, graph_timeout_sec: float) -> set[str]:
     if not expected_topics:
         return set()
     last_topics: set[str] = set()
@@ -125,6 +100,7 @@ def _poll_for_expected_topics(
     missing = sorted(expected_topics - last_topics)
     raise IntegratedSmokeError(f'timed out waiting for operator-ready topics; missing topics={missing}')
 
+
 def _wait_for_tcp(host: str, port: int, *, deadline_monotonic: float) -> None:
     last_error = ''
     while time.monotonic() < deadline_monotonic:
@@ -138,22 +114,9 @@ def _wait_for_tcp(host: str, port: int, *, deadline_monotonic: float) -> None:
 
 
 def _wait_for_websocket_listener(ws_url: str, *, deadline_monotonic: float) -> None:
-    """Wait until the websocket endpoint completes one real handshake.
-
-    Args:
-        ws_url: Target websocket URL.
-        deadline_monotonic: Absolute startup deadline.
-
-    Returns:
-        None.
-
-    Raises:
-        IntegratedSmokeError: When the handshake does not complete before the
-            deadline or the ``websockets`` dependency is unavailable.
-    """
     try:
         import websockets
-    except Exception as exc:  # pragma: no cover - environment setup failure
+    except Exception as exc:  # pragma: no cover
         raise IntegratedSmokeError(f'websocket probe dependency unavailable: {exc}') from exc
 
     last_error = ''
@@ -173,6 +136,21 @@ def _wait_for_websocket_listener(ws_url: str, *, deadline_monotonic: float) -> N
             last_error = str(exc)
             time.sleep(0.5)
     raise IntegratedSmokeError(f'timed out waiting for websocket listener {ws_url}: {last_error or "unavailable"}')
+
+
+def _wait_for_api_health(url: str, *, deadline_monotonic: float) -> None:
+    last_error = ''
+    while time.monotonic() < deadline_monotonic:
+        try:
+            with urlopen(url, timeout=1.5) as response:
+                payload = json.loads(response.read().decode('utf-8'))
+            if bool(payload.get('ok')) and bool(payload.get('operatorSurfaceReady')):
+                return
+            last_error = f'health not ready: {payload}'
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(0.5)
+    raise IntegratedSmokeError(f'timed out waiting for api health {url}: {last_error or "unavailable"}')
 
 
 def _tail_text(path: Path, *, lines: int = 120) -> str:
@@ -215,7 +193,7 @@ def _terminate_process_group(process: subprocess.Popen[str], *, grace_sec: float
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description='Run an integrated mock_system + web_bridge + frontend smoke test.')
+    parser = argparse.ArgumentParser(description='Run an integrated mock_system + operator API facade + frontend smoke test.')
     parser.add_argument('--launch-package', default='robot_bringup')
     parser.add_argument('--launch-file', default='mock_system.launch.py')
     parser.add_argument('--launch-arg', action='append', default=['enable_voice:=false', 'enable_vision:=false'])
@@ -227,6 +205,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument('--bridge-host', default='127.0.0.1')
     parser.add_argument('--bridge-port', type=int, default=9001)
     parser.add_argument('--bridge-path', default='/ws')
+    parser.add_argument('--api-host', default='127.0.0.1')
+    parser.add_argument('--api-port', type=int, default=9100)
+    parser.add_argument('--api-path', default='/ws')
+    parser.add_argument('--api-health-url', default='http://127.0.0.1:9100/api/v1/health')
     parser.add_argument('--frontend-command', default='python3 scripts/run_frontend_workspace_command.py -- npm run test:e2e:live')
     parser.add_argument('--log-file', default='/tmp/integrated_frontend_bridge_smoke_launch.log')
     parser.add_argument('--frontend-log-file', default='/tmp/integrated_frontend_bridge_smoke_frontend.log')
@@ -249,7 +231,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     env.setdefault('CI', '1')
     env.setdefault('PLAYWRIGHT_LIVE_BRIDGE', '1')
     env.setdefault('VITE_ENABLE_MOCK', 'false')
-    env.setdefault('VITE_ROBOT_WS_URL', f'ws://{args.bridge_host}:{args.bridge_port}{args.bridge_path}')
+    env.setdefault('VITE_ROBOT_WS_URL', f'ws://{args.api_host}:{args.api_port}{args.api_path}')
+    env.setdefault('VITE_ROBOT_WS_SURFACE_KIND', 'api_facade')
+    env.setdefault('VITE_ROBOT_WS_AUTHORITY', 'authoritative_operator')
     env['ROS_DOMAIN_ID'] = str(args.ros_domain_id)
 
     launch_cmd = ['ros2', 'launch', args.launch_package, args.launch_file, *args.launch_arg]
@@ -259,57 +243,31 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     launch_process: subprocess.Popen[str] | None = None
     try:
-        with launch_log_path.open('w', encoding='utf-8') as launch_log:
-            launch_process = subprocess.Popen(
-                launch_cmd,
-                stdout=launch_log,
-                stderr=subprocess.STDOUT,
-                text=True,
-                env=env,
-                start_new_session=True,
-            )
+        with launch_log_path.open('w', encoding='utf-8') as launch_log, frontend_log_path.open('w', encoding='utf-8') as frontend_log:
+            launch_process = subprocess.Popen(launch_cmd, stdout=launch_log, stderr=subprocess.STDOUT, text=True, env=env, preexec_fn=os.setsid)
             deadline = time.monotonic() + args.startup_timeout_sec
-            _poll_for_expected_nodes(
-                process=launch_process,
-                expected_nodes=expected_nodes,
-                deadline_monotonic=deadline,
-                graph_timeout_sec=args.graph_command_timeout_sec,
-            )
-            _poll_for_expected_topics(
-                process=launch_process,
-                expected_topics=expected_ready_topics,
-                deadline_monotonic=deadline,
-                graph_timeout_sec=args.graph_command_timeout_sec,
-            )
+            _poll_for_expected_nodes(process=launch_process, expected_nodes=expected_nodes, deadline_monotonic=deadline, graph_timeout_sec=args.graph_command_timeout_sec)
+            _poll_for_expected_topics(process=launch_process, expected_topics=expected_ready_topics, deadline_monotonic=deadline, graph_timeout_sec=args.graph_command_timeout_sec)
             _wait_for_tcp(args.bridge_host, args.bridge_port, deadline_monotonic=deadline)
             _wait_for_websocket_listener(f'ws://{args.bridge_host}:{args.bridge_port}{args.bridge_path}', deadline_monotonic=deadline)
+            _wait_for_tcp(args.api_host, args.api_port, deadline_monotonic=deadline)
+            _wait_for_api_health(args.api_health_url, deadline_monotonic=deadline)
+            _wait_for_websocket_listener(f'ws://{args.api_host}:{args.api_port}{args.api_path}', deadline_monotonic=deadline)
 
             frontend_cmd = shlex.split(args.frontend_command)
-            with frontend_log_path.open('w', encoding='utf-8') as frontend_log:
-                completed = subprocess.run(
-                    frontend_cmd,
-                    cwd=Path(__file__).resolve().parents[1],
-                    stdout=frontend_log,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    env=env,
-                    timeout=max(120.0, args.startup_timeout_sec * 2.0),
-                )
+            completed = subprocess.run(frontend_cmd, stdout=frontend_log, stderr=subprocess.STDOUT, text=True, env=env)
             if completed.returncode != 0:
-                raise IntegratedSmokeError(f'frontend command failed with code {completed.returncode}')
+                raise IntegratedSmokeError(f'frontend smoke command failed with exit code {completed.returncode}')
+        print('[integrated-smoke] live operator API facade smoke passed')
+        return 0
     except IntegratedSmokeError as exc:
-        print(f'[integrated-smoke] ERROR: {exc}', file=sys.stderr)
-        print('\n===== ROS launch log tail =====', file=sys.stderr)
-        print(_tail_text(launch_log_path), file=sys.stderr)
-        print('\n===== Frontend smoke log tail =====', file=sys.stderr)
-        print(_tail_text(frontend_log_path), file=sys.stderr)
+        sys.stderr.write(f'[integrated-smoke] {exc}\n')
+        sys.stderr.write(f'--- launch log tail ({launch_log_path}) ---\n{_tail_text(launch_log_path)}\n')
+        sys.stderr.write(f'--- frontend log tail ({frontend_log_path}) ---\n{_tail_text(frontend_log_path)}\n')
         return 1
     finally:
         if launch_process is not None:
             _terminate_process_group(launch_process, grace_sec=args.shutdown_grace_sec)
-
-    print('[integrated-smoke] success: live web bridge and frontend smoke completed')
-    return 0
 
 
 if __name__ == '__main__':

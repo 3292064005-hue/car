@@ -25,6 +25,7 @@ setup(
             'preflight = robot_bringup.preflight:main',
             'managed_component_node = robot_bringup.managed_component_node:main',
             'ros_lifecycle_manager = robot_bringup.ros_lifecycle_manager:main',
+            'runtime_orchestration_manager = robot_bringup.runtime_orchestration_manager:main',
         ],
     },
 )

@@ -152,6 +152,54 @@
       "mirrors": [
         "stm32_code/stm32_f103_chassis/Inc/protocol.h"
       ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/include/host_harness_entry.h",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/host_harness_entry.h"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/include/board_runtime_boundary.h",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/board_runtime_boundary.h"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/src/host_harness_entry.c",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/host_harness_entry.c"
+      ]
+    },
+    {
+      "canonical": "esp32s3_code/esp32_s3_gateway/src/board_runtime_boundary.c",
+      "mirrors": [
+        "esp32s3_code/esp32_s3_gateway/main/board_runtime_boundary.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/include/host_harness_entry.h",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Inc/host_harness_entry.h"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/include/board_runtime_boundary.h",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Inc/board_runtime_boundary.h"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/host_harness_entry.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/host_harness_entry.c"
+      ]
+    },
+    {
+      "canonical": "stm32_code/stm32_f103_chassis/src/board_runtime_boundary.c",
+      "mirrors": [
+        "stm32_code/stm32_f103_chassis/Src/board_runtime_boundary.c"
+      ]
     }
   ],
   "layout_mode": "single_root_canonical"

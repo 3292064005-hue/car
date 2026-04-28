@@ -90,7 +90,7 @@ class CommandApplicationService:
         try:
             request = self.resolve(cmd)
         except ValueError as exc:
-            self._router._deny(str(cmd.get('event_id', '') or 'frontend-event'), 'unknown', str(exc), trace_id=str(cmd.get('trace_id', '') or ''))
+            self._router._deny(str(cmd.get('event_id', '') or 'frontend-event'), 'unknown', str(exc), trace_id=str(cmd.get('trace_id', '') or ''), detail='unsupported_command')
             return
 
         context = self._router.node.build_command_context()
@@ -98,12 +98,12 @@ class CommandApplicationService:
             context = apply_session_policy_to_context(context, request.session_policy)
         guard = command_guard(request.command_type, context, payload=request.payload)
         if not guard.ok:
-            self._router._deny(request.event_id, request.command_type, guard.reason, trace_id=request.trace_id)
+            self._router._deny(request.event_id, request.command_type, guard.reason, trace_id=request.trace_id, detail=guard.detail_code)
             return
 
         handler = self._handlers.get(request.command_type)
         if handler is None:
-            self._router._deny(request.event_id, request.command_type, f'unsupported command: {request.command_type}', trace_id=request.trace_id)
+            self._router._deny(request.event_id, request.command_type, f'unsupported command: {request.command_type}', trace_id=request.trace_id, detail='unsupported_command')
             return
         handler(
             meta=self._router._make_action_binding_from_request(request),

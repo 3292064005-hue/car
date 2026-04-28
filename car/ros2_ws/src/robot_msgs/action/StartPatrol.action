@@ -1,5 +1,8 @@
 string requested_by
 string reason
+string mission_id
+string route_name
+string task_profile
 string trace_id
 ---
 bool success

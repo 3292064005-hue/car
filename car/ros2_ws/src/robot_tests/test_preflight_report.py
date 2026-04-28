@@ -38,3 +38,10 @@ def test_web_bridge_surface_does_not_require_backend_vision_python_modules() -> 
     assert 'cv2' not in plan.startup_required_modules
     assert 'numpy' not in plan.startup_required_modules
     assert 'websockets' in plan.startup_required_modules
+
+
+def test_preflight_report_requires_ros2_control_standardization_artifacts_for_real_robot_lane() -> None:
+    report = build_preflight_report('hardware', surface='backend')
+    names = {item['name']: item for item in report['checks']}
+    assert names['ros2_control_artifact:controllersConfig']['ok'] is True
+    assert names['ros2_control_artifact:urdfOverlay']['ok'] is True

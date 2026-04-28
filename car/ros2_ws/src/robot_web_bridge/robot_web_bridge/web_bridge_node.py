@@ -25,6 +25,7 @@ from robot_contracts.bridge_contract import (
     command_capability_snapshot,
 )
 from robot_contracts.command_policy import SessionPolicy, resolve_session_policy
+from robot_contracts.surface_registry import surface_registry_entry
 from robot_msgs.msg import ChassisState, EventLog, Fault, ModeState, PowerState, SpeakRequest, SystemStatus, VisionTarget, VoiceCommand
 from robot_msgs.srv import ResetFault, SaveSnapshot, SetMode
 from robot_contracts.runtime_param_transport import (
@@ -272,6 +273,15 @@ class RobotWebBridgeNode(Node):
     @staticmethod
     def _apply_session_policy_to_connection(connection: dict[str, Any], policy: SessionPolicy) -> dict[str, Any]:
         payload = dict(connection or {})
+        surface_entry = surface_registry_entry('bridge_observer_surface')
+        if surface_entry is not None:
+            payload.update({
+                'surfaceId': surface_entry.surface_id,
+                'surfaceLayers': list(surface_entry.surface_layers),
+                'surfaceAuthorityModel': surface_entry.authority_model,
+                'surfaceWriteEnabled': bool(surface_entry.write_enabled),
+                'surfaceMachineGateAllowed': bool(surface_entry.machine_gate_allowed),
+            })
         payload['sessionRole'] = policy.role
         payload['sessionRequestedRole'] = policy.requested_role
         payload['sessionWriteEnabled'] = bool(policy.write_enabled)
@@ -651,6 +661,7 @@ class RobotWebBridgeNode(Node):
         detail: str = '',
         trace_id: str = '',
         lifecycle_status: str = '',
+        lifecycle_phase: str = '',
     ) -> None:
         """Send one command acknowledgement envelope.
 
@@ -663,6 +674,9 @@ class RobotWebBridgeNode(Node):
             lifecycle_status: Optional precise lifecycle status exposed for
                 operator-facing consumers that distinguish acceptance from
                 application/completion.
+            lifecycle_phase: Optional end-to-end phase label used by UI command
+                history to distinguish sent, queued, ROS accepted, completed,
+                failed, and timed-out states.
 
         Returns:
             None.
@@ -679,6 +693,7 @@ class RobotWebBridgeNode(Node):
                 detail=detail,
                 trace_id=trace_id or None,
                 lifecycle_status=lifecycle_status or None,
+                lifecycle_phase=lifecycle_phase or None,
             )
         )
 

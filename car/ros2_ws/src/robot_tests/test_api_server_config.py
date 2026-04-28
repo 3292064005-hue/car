@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from robot_api_server.api_server_main import _load_config_defaults
+from robot_api_server.api_server_main import _derive_config_root, _load_config_defaults
 
 
 def test_load_api_server_defaults_from_yaml(tmp_path: Path) -> None:
@@ -38,3 +38,10 @@ def test_load_api_server_defaults_from_yaml(tmp_path: Path) -> None:
             },
         },
     }
+
+
+
+def test_derive_config_root_returns_parent_directory(tmp_path: Path) -> None:
+    config = tmp_path / 'api_server.yaml'
+    config.write_text('robot_api_server: {}\n', encoding='utf-8')
+    assert _derive_config_root(str(config)) == str(tmp_path.resolve())

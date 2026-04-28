@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:macro name="inspection_robot_ros2_control" params="name:=inspection_robot">
+    <ros2_control name="${name}_system" type="system">
+      <hardware>
+        <plugin>robot_hardware_interface/InspectionRobotSystemInterface</plugin>
+        <param name="transport_authority">ros_process_driver</param>
+        <param name="command_transport">direct_driver_loop</param>
+      </hardware>
+      <joint name="left_wheel_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_wheel_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <sensor name="battery_state">
+        <state_interface name="battery_percentage"/>
+        <state_interface name="battery_voltage"/>
+      </sensor>
+    </ros2_control>
+  </xacro:macro>
+</robot>

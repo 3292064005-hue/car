@@ -1,0 +1,8 @@
+robot_fleet_adapter_boundary:
+  ros__parameters:
+    fleet_adapter_enabled: false
+    fleet_adapter_family: disabled
+    fleet_task_ingress_topic: /robot/fleet_adapter/tasks
+    fleet_status_topic: /robot/fleet_adapter/status
+    fleet_accepted_task_kinds:
+      - patrol_route

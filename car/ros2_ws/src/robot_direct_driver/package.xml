@@ -14,6 +14,7 @@
   <exec_depend>robot_msgs</exec_depend>
   <exec_depend>robot_utils</exec_depend>
   <exec_depend>robot_description</exec_depend>
+  <exec_depend>robot_bridge</exec_depend>
   <exec_depend>robot_hardware_interface</exec_depend>
 
   <export>

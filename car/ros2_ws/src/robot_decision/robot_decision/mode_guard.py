@@ -79,6 +79,12 @@ class ModeGuard:
         power_ok = self.power_ready()
         heartbeat_ok = self.heartbeat_ready()
         manual_confirmed = self._node._safe_stop_manual_confirmed if require_manual_confirm else True
+        context = getattr(self._node, 'context', None)
+        orchestration_state = str(getattr(context, 'runtime_orchestration_state', '') or '').strip().lower()
+        orchestration_reason = str(getattr(context, 'runtime_orchestration_reason', '') or '').strip()
+        required_missing = list(getattr(context, 'runtime_orchestration_required_missing', []) or [])
+        if orchestration_state in {'booting', 'blocked', 'recovering'} or required_missing:
+            return False, orchestration_reason or ('runtime_orchestration_missing_fields:' + ','.join(required_missing) if required_missing else 'runtime_orchestration_not_ready')
         if can_recover_from_safe_stop(
             estop_active=estop_active,
             link_ok=link_ok,
@@ -121,7 +127,7 @@ class ModeGuard:
             safe_stop_active=self._node.current_mode in {MODE_SAFE_STOP, MODE_FAULT},
             safe_stop_recoverable=safe_stop_recoverable,
             safe_stop_requires_manual_ack=self.manual_recovery_required(),
-            safe_stop_blocked_reason=blocked_reason,
+            safe_stop_blocked_reason=blocked_reason or str(getattr(getattr(self._node, 'context', None), 'runtime_orchestration_reason', '') or '') or None,
         )
 
     def request_mode_change(self, requested_mode: str, requested_by: str, reason: str) -> tuple[bool, str]:

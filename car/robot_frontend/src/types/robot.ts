@@ -2,6 +2,7 @@ import type {
   GeneratedBridgeInboundPayloadMap,
   GeneratedBridgeOutboundPayloadMap,
   GeneratedCommandType,
+  GeneratedCommandLifecyclePhase,
   GeneratedInboundEventType,
   GeneratedParamProfile,
   GeneratedRobotSnapshot,
@@ -17,6 +18,7 @@ export type FaultLevel = 'info' | 'warning' | 'critical';
 export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'CRITICAL';
 export type LogDomain = 'SYSTEM' | 'BRIDGE' | 'CONTROL' | 'VISION' | 'VOICE' | 'TASK' | 'SAFETY' | 'PARAM' | 'REPLAY' | 'INSPECTOR' | 'REPORT';
 export type CommandType = GeneratedCommandType;
+export type CommandLifecyclePhase = GeneratedCommandLifecyclePhase;
 export type CommandStatus = 'queued' | 'sent' | 'ack' | 'accepted' | 'applied' | 'completed' | 'rejected' | 'denied' | 'timeout' | 'cancelled' | 'superseded';
 export type SourceType = 'frontend' | 'bridge' | 'ros2' | 'esp32' | 'stm32' | 'mock';
 export type SafetyPhase = 'nominal' | 'degraded' | 'safe_stop' | 'fault_locked';
@@ -98,12 +100,21 @@ export interface ConnectionState {
   operatorReady?: boolean;
   operatorReadyReasons?: string[];
   operatorReadyTopic?: string | null;
+  websocketSurfaceKind?: string;
+  websocketSurfaceAuthority?: string;
+  websocketSurfaceMismatch?: boolean;
+  websocketSurfaceMismatchReason?: string | null;
   sessionRole?: string;
   sessionRequestedRole?: string;
   sessionWriteEnabled?: boolean;
   sessionAccessReason?: string;
   sessionId?: string | null;
   sessionPolicySource?: string;
+  surfaceId?: string;
+  surfaceLayers?: string[];
+  surfaceAuthorityModel?: string;
+  surfaceWriteEnabled?: boolean;
+  surfaceMachineGateAllowed?: boolean;
 }
 
 
@@ -244,10 +255,21 @@ export interface StoredProfiles {
   lastTransaction: RuntimeParamTransactionState | null;
 }
 
+export interface CommandLifecycleEvent {
+  phase: CommandLifecyclePhase;
+  status: CommandStatus;
+  timestamp: string;
+  message?: string;
+  detail?: string;
+}
+
 export interface CommandRecord {
   id: string;
   type: CommandType;
   status: CommandStatus;
+  lifecycleStatus: CommandStatus;
+  lifecyclePhase: CommandLifecyclePhase;
+  lifecycleHistory: CommandLifecycleEvent[];
   createdAt: string;
   updatedAt: string;
   summary: string;
@@ -296,7 +318,7 @@ export interface UiState {
   lockedLayout: boolean;
 }
 
-export interface ReplaySession {
+export interface BrowserReplaySession {
   kind?: 'offline-session-export';
   exportScope?: 'frontend-state-snapshot';
   exportedAt: string;
@@ -308,6 +330,31 @@ export interface ReplaySession {
   commands?: CommandRecord[];
   inspectorTrace?: InspectorRecord[];
 }
+
+export interface SystemReplayBundle {
+  kind: 'system-replay-bundle';
+  exportScope: 'system-evidence';
+  exportedAt: string;
+  sourceName: string;
+  version: string;
+  sessionMetadata: {
+    sessionId: string;
+    profileName: string;
+    providerName: string;
+    hardwareRole: string;
+    evidenceClass: string;
+  };
+  topics: Array<Record<string, unknown>>;
+  serviceActionEvents: Array<Record<string, unknown>>;
+  traceCorrelation: Array<Record<string, unknown>>;
+  commands?: CommandRecord[];
+  logs: LogItem[];
+  history: HistoryState;
+  params: StoredProfiles;
+  inspectorTrace?: InspectorRecord[];
+}
+
+export type ReplaySession = BrowserReplaySession | SystemReplayBundle;
 
 export interface ReplayState {
   session: ReplaySession | null;

@@ -245,6 +245,8 @@ def build_quality_manifest(*, common_checks_complete: bool, frontend_lane: bool,
         config_path=effective_config_path,
         target_environment_acceptance_path=target_environment_acceptance_path,
     )
+    hardware_boundary = runtime_signal_contract.get('hardwareBoundary', {}) if isinstance(runtime_signal_contract.get('hardwareBoundary', {}), dict) else {}
+    embedded_runtime_layout = hardware_boundary.get('embeddedRuntimeLayout', {}) if isinstance(hardware_boundary.get('embeddedRuntimeLayout', {}), dict) else {}
     release_gate_satisfied = len(blocking_issues) == 0
     delivery_tiers = _delivery_evidence_tiers(
         common_checks_complete=common_checks_complete,
@@ -279,6 +281,8 @@ def build_quality_manifest(*, common_checks_complete: bool, frontend_lane: bool,
             'runtimeConsumerClosureCompleted': runtime_signal_contract['runtime_consumer_closure_completed'],
             'mainlineRuntimeGaps': runtime_signal_contract['mainline_runtime_gaps'],
             'topicPruningApplied': runtime_signal_contract['topic_pruning_applied'],
+            'hardwareBoundary': hardware_boundary,
+            'embeddedRuntimeLayout': embedded_runtime_layout,
         },
         'qualityScorecard': coverage,
         'executedLanes': lane_execution,
@@ -309,6 +313,8 @@ def build_quality_manifest(*, common_checks_complete: bool, frontend_lane: bool,
             'realBoardObserved': bool(target_coverage.get('realBoardObserved', False)),
             'targetEnvironmentAcceptanceRequiredForRelease': True,
             'hardwareInLoopRequiredForRealBoardClaims': True,
+            'hardwareBoundary': hardware_boundary,
+            'embeddedRuntimeLayout': embedded_runtime_layout,
             'verificationTiers': {
                 'highestVerifiedEvidenceClass': evidence_class_payload(strongest),
                 'targetEnvironmentFloor': evidence_class_payload('hardware_in_loop'),
@@ -317,6 +323,7 @@ def build_quality_manifest(*, common_checks_complete: bool, frontend_lane: bool,
             'claimBoundaryNotes': [
                 'this manifest covers repository/common/frontend/mock-robot lanes plus the supplied target-environment artifact',
                 'final-delivery release claims stay blocked until target_environment_accepted is present',
+                'hardwareBoundary and embeddedRuntimeLayout snapshots are sourced from the same runtime signal contract consumed by launch/profile reports',
             ],
         },
     }

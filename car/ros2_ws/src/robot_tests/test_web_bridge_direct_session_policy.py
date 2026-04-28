@@ -60,3 +60,21 @@ def test_direct_bridge_client_cannot_escalate_with_internal_bridge_token_query()
     assert policy['role'] == 'observer'
     assert policy['write_enabled'] is False
     assert policy['source'] == 'bridge_direct_readonly'
+
+
+def test_bridge_observer_surface_overlay_is_projected_into_connection_payload() -> None:
+    connection = RobotWebBridgeNode._apply_session_policy_to_connection(
+        {'commandPermissions': {'set_mode': {'allowed': True}}},
+        type('Policy', (), {
+            'role': 'observer',
+            'requested_role': 'operator',
+            'write_enabled': False,
+            'reason': 'direct bridge sessions are observer-only; command writes are blocked',
+            'session_id': 'browser-client',
+            'source': 'bridge_direct_readonly',
+        })(),
+    )
+    assert connection['surfaceId'] == 'bridge_observer_surface'
+    assert connection['surfaceWriteEnabled'] is False
+    assert 'observability_report' in connection['surfaceLayers']
+    assert connection['commandPermissions']['set_mode']['allowed'] is False

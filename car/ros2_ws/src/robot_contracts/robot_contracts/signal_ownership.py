@@ -328,20 +328,63 @@ _REPORT_SIGNAL_REGISTRY: dict[str, dict[str, Any]] = {
         'evidenceConsumers': ('render_release_quality_manifest', 'render_acceptance_report'),
         'ackOwners': (),
         'notes': 'Runtime supervision report is consumed by acceptance/release gates.',
+        'evidenceLayerOverride': 'machine_gate',
     },
 }
 
 
+def _entry_evidence_layer(entry: dict[str, Any]) -> str:
+    kind = str(entry.get('kind', '')).strip()
+    override = str(entry.get('evidenceLayerOverride', '')).strip()
+    if override:
+        return override
+    if kind == 'command':
+        return 'command_audit'
+    if kind == 'runtime_parameter':
+        scope = str(entry.get('scope', '')).strip()
+        if scope == RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE:
+            return 'machine_gate'
+        if scope == RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL:
+            return 'ui_local_only'
+    if kind == 'topic' and list(entry.get('runtimeConsumers', [])):
+        return 'machine_gate'
+    if kind == 'report':
+        return 'human_summary'
+    return 'human_summary'
+
+
+
+def _machine_evidence_allowed(entry: dict[str, Any]) -> bool:
+    return _entry_evidence_layer(entry) in {'machine_gate', 'command_audit'}
+
+
+
+def _normalized_registry_entry(entry: dict[str, Any]) -> dict[str, Any]:
+    normalized = {
+        **entry,
+        'runtimeConsumers': list(entry.get('runtimeConsumers', [])),
+        'uiConsumers': list(entry.get('uiConsumers', [])),
+        'evidenceConsumers': list(entry.get('evidenceConsumers', [])),
+        'ackOwners': list(entry.get('ackOwners', [])),
+    }
+    if 'scope' in entry:
+        normalized['scope'] = str(entry.get('scope', '') or '')
+    normalized['evidenceLayer'] = _entry_evidence_layer(normalized)
+    normalized['machineEvidenceAllowed'] = _machine_evidence_allowed(normalized)
+    normalized.pop('evidenceLayerOverride', None)
+    return normalized
+
+
 
 def topic_signal_registry_payload() -> dict[str, dict[str, Any]]:
-    return {key: {**value, 'runtimeConsumers': list(value['runtimeConsumers']), 'uiConsumers': list(value['uiConsumers']), 'evidenceConsumers': list(value['evidenceConsumers']), 'ackOwners': list(value['ackOwners'])} for key, value in _TOPIC_SIGNAL_REGISTRY.items()}
+    return {key: _normalized_registry_entry(value) for key, value in _TOPIC_SIGNAL_REGISTRY.items()}
 
 
 
 def runtime_parameter_signal_registry_payload() -> dict[str, dict[str, Any]]:
     payload: dict[str, dict[str, Any]] = {}
     for field_name, contract in RUNTIME_PARAM_FIELD_CONTRACTS.items():
-        payload[field_name] = {
+        entry = {
             'kind': 'runtime_parameter',
             'producer': 'robot_frontend',
             'scope': contract['scope'],
@@ -351,17 +394,18 @@ def runtime_parameter_signal_registry_payload() -> dict[str, dict[str, Any]]:
             'ackOwners': list(contract['ackOwners']),
             'notes': str(contract['notes']),
         }
+        payload[field_name] = _normalized_registry_entry(entry)
     return payload
 
 
 
 def command_signal_registry_payload() -> dict[str, dict[str, Any]]:
-    return {key: {**value, 'runtimeConsumers': list(value['runtimeConsumers']), 'uiConsumers': list(value['uiConsumers']), 'evidenceConsumers': list(value['evidenceConsumers']), 'ackOwners': list(value['ackOwners'])} for key, value in _COMMAND_SIGNAL_REGISTRY.items()}
+    return {key: _normalized_registry_entry(value) for key, value in _COMMAND_SIGNAL_REGISTRY.items()}
 
 
 
 def report_signal_registry_payload() -> dict[str, dict[str, Any]]:
-    return {key: {**value, 'runtimeConsumers': list(value['runtimeConsumers']), 'uiConsumers': list(value['uiConsumers']), 'evidenceConsumers': list(value['evidenceConsumers']), 'ackOwners': list(value['ackOwners'])} for key, value in _REPORT_SIGNAL_REGISTRY.items()}
+    return {key: _normalized_registry_entry(value) for key, value in _REPORT_SIGNAL_REGISTRY.items()}
 
 
 
@@ -382,7 +426,10 @@ def validate_signal_registry() -> list[str]:
             producer = str(entry.get('producer', '')).strip()
             if not producer:
                 errors.append(f'{registry_name}:{key}:missing_producer')
-            consumers = [*list(entry.get('runtimeConsumers', [])), *list(entry.get('uiConsumers', [])), *list(entry.get('evidenceConsumers', []))]
+            runtime_consumers = list(entry.get('runtimeConsumers', []))
+            ui_consumers = list(entry.get('uiConsumers', []))
+            evidence_consumers = list(entry.get('evidenceConsumers', []))
+            consumers = [*runtime_consumers, *ui_consumers, *evidence_consumers]
             if not consumers:
                 errors.append(f'{registry_name}:{key}:missing_consumer')
             ack_owners = list(entry.get('ackOwners', []))
@@ -395,6 +442,11 @@ def validate_signal_registry() -> list[str]:
             for ack_owner in ack_owners:
                 if ack_owner not in consumers:
                     errors.append(f'{registry_name}:{key}:ack_owner_not_listed_as_consumer:{ack_owner}')
+            evidence_layer = str(entry.get('evidenceLayer', '')).strip()
+            if evidence_layer == 'machine_gate' and entry.get('kind') == 'report' and not evidence_consumers:
+                errors.append(f'{registry_name}:{key}:machine_gate_report_requires_evidence_consumer')
+            if evidence_layer == 'human_summary' and runtime_consumers:
+                errors.append(f'{registry_name}:{key}:human_summary_must_not_have_runtime_consumer')
     return errors
 
 

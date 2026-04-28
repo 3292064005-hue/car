@@ -7,9 +7,11 @@ from uuid import uuid4
 from robot_contracts.capabilities import (
     BRIDGE_CAPABILITIES,
     COMMAND_ACK_STATUSES,
+    COMMAND_LIFECYCLE_PHASES,
     COMMAND_LIFECYCLE_STATUSES,
     COMMAND_TYPES,
     TRANSPORT_SUMMARY_KEYS,
+    command_lifecycle_phase_for_status,
     compatibility_ack_status,
 )
 from robot_contracts.command_policy import COMMAND_PERMISSION_MATRIX, ContractCheckResult
@@ -63,6 +65,7 @@ class CommandAck:
     detail: str = ''
     trace_id: str = ''
     lifecycle_status: str = ''
+    lifecycle_phase: str = ''
 
     def to_payload(self) -> dict[str, Any]:
         """Serialize one command acknowledgement payload.
@@ -80,6 +83,7 @@ class CommandAck:
         if self.status not in COMMAND_ACK_STATUSES:
             raise EnvelopeValidationError(f'unsupported command ack status: {self.status}')
         lifecycle_status = str(self.lifecycle_status or '').strip()
+        lifecycle_phase = str(self.lifecycle_phase or '').strip()
         if lifecycle_status:
             if lifecycle_status not in COMMAND_LIFECYCLE_STATUSES:
                 raise EnvelopeValidationError(f'unsupported command lifecycle status: {lifecycle_status}')
@@ -88,6 +92,9 @@ class CommandAck:
                 raise EnvelopeValidationError(
                     f'command ack status {self.status!r} does not match lifecycle status {lifecycle_status!r}'
                 )
+            lifecycle_phase = lifecycle_phase or command_lifecycle_phase_for_status(lifecycle_status)
+        if lifecycle_phase and lifecycle_phase not in COMMAND_LIFECYCLE_PHASES:
+            raise EnvelopeValidationError(f'unsupported command lifecycle phase: {lifecycle_phase}')
         payload = {
             'commandId': self.command_id,
             'status': self.status,
@@ -96,6 +103,8 @@ class CommandAck:
         record_ack_status_alias_emission(lifecycle_status=lifecycle_status or self.status, detail='command_ack.status compatibility alias emitted')
         if lifecycle_status:
             payload['lifecycleStatus'] = lifecycle_status
+        if lifecycle_phase:
+            payload['lifecyclePhase'] = lifecycle_phase
         if self.detail:
             payload['detail'] = self.detail
         if self.trace_id:
@@ -212,6 +221,7 @@ def contract_version_snapshot() -> dict[str, object]:
         'command_types': list(COMMAND_TYPES),
         'command_ack_statuses': list(COMMAND_ACK_STATUSES),
         'command_lifecycle_statuses': list(COMMAND_LIFECYCLE_STATUSES),
+        'command_lifecycle_phases': list(COMMAND_LIFECYCLE_PHASES),
         'transport_summary_keys': list(TRANSPORT_SUMMARY_KEYS),
         'command_permission_matrix': {key: list(value) for key, value in COMMAND_PERMISSION_MATRIX.items()},
         'runtime_param_keys': list(RUNTIME_PARAM_SCHEMA.keys()),

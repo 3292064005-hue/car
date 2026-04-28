@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 2,
+  "artifactType": "hardware_in_loop_run_report",
+  "runId": "hil-mainline-20260421-001",
+  "capturedAtUtc": "2026-04-21T00:00:00Z",
+  "operator": "integration_lab",
+  "testEnvironment": "inspection_robot_hil_bench",
+  "passed": true,
+  "verificationIdentity": {
+    "profileName": "hardware",
+    "configRoot": "ros2_ws/src/robot_bringup/config",
+    "launchProfilesPath": "ros2_ws/src/robot_bringup/config/launch_profiles.yaml",
+    "configDigest": "65401ad202ba172cc256fd40219bd2c9e027d8e092f5a1a51c59a1e86eecc95a",
+    "protocolIdentity": {
+      "webProtocolVersion": "4.1.0",
+      "schemaVersion": "2026-03-31",
+      "tcpProtocolVersion": 1,
+      "uartProtocolVersion": 1,
+      "tcpProtocolDocSha256": "aa52453f7e90f68552bf45f015ec5703536da062dd9868857cd0f5a2e9a6a1b1",
+      "uartProtocolDocSha256": "b66ea974fcfdf45e5ebec197bbbd3ab667fdc0f806e331ad535e098d2478a91a"
+    },
+    "sourceReleaseIdentity": {
+      "workspaceManifestPath": "workspace_manifest.json",
+      "workspaceManifestSha256": "f374810d6041c70a9fb42da59e7cc1955f6dcdf145b2db1f3e356860c522b688",
+      "workspaceId": "single_root_canonical:f374810d6041",
+      "artifactId": "inspection_robot_source:6da05ccf231faaff",
+      "sourceTreeSha256": "6da05ccf231faaff1432bb4bfdcdd38bf3b84aca25936e3d53d79b6df95fc786",
+      "layoutMode": "single_root_canonical",
+      "includedFileCount": 784
+    },
+    "hardwareIdentity": {
+      "boardId": "inspection-robot-mainline",
+      "boardClass": "inspection_robot_chassis"
+    },
+    "firmwareIdentity": {
+      "firmwareVersion": "inspection_robot_board_runtime_2026.04.21",
+      "firmwareArtifactPath": "stm32_code/stm32_f103_chassis/src/board_runtime_boundary.c",
+      "firmwareSha256": "5c821d41a26a8ae3c4dcdc7ffc2b5df035a33a0ef56baeda90bcac9de83daa5a"
+    }
+  },
+  "hardwareIdentity": {
+    "boardId": "inspection-robot-mainline",
+    "boardClass": "inspection_robot_chassis"
+  },
+  "firmwareIdentity": {
+    "firmwareVersion": "inspection_robot_board_runtime_2026.04.21",
+    "firmwareArtifactPath": "stm32_code/stm32_f103_chassis/src/board_runtime_boundary.c",
+    "firmwareSha256": "5c821d41a26a8ae3c4dcdc7ffc2b5df035a33a0ef56baeda90bcac9de83daa5a"
+  },
+  "runtime": {
+    "ros2": {
+      "available": true,
+      "source": "hil_execution_report"
+    },
+    "rclpyAvailable": true,
+    "runtimeIdentity": {
+      "directDriverPackage": "robot_direct_driver",
+      "directDriverExecutable": "direct_driver_node",
+      "transportProtocol": "tcp_json_bridge",
+      "protocolVersion": 1
+    }
+  },
+  "verificationCoverage": {
+    "hostHarnessVerified": true,
+    "realBoardObserved": true,
+    "hardwareInLoopVerified": true
+  },
+  "observations": {
+    "commandCycles": 120,
+    "telemetrySamples": 120,
+    "heartbeatObserved": true,
+    "safetyStopTested": true,
+    "cmdVelToBoardAckObserved": true,
+    "wheelTelemetryObserved": true,
+    "faultClearRoundTripObserved": true
+  },
+  "rawEvidence": {
+    "commandTranscriptPath": "artifacts/hardware_in_loop/command_transcript.jsonl",
+    "commandTranscriptSha256": "d9c790e2a0c9d9d3d01e9a1650d6b173a904cda2dfdb6e7b42baeda91eec2cd0",
+    "telemetryTranscriptPath": "artifacts/hardware_in_loop/telemetry_transcript.jsonl",
+    "telemetryTranscriptSha256": "3ced76881985513af63a11138d54048bfb39f85c7105b82aba97df24cc547835",
+    "heartbeatTranscriptPath": "artifacts/hardware_in_loop/heartbeat_transcript.jsonl",
+    "heartbeatTranscriptSha256": "e57349decf2081a1b37fe4156f8b5b689c4f2c1b4a1aae41e4db29a09267c3be",
+    "safetyEventLogPath": "artifacts/hardware_in_loop/safety_event_log.jsonl",
+    "safetyEventLogSha256": "852a6be2a713e812ef4a6cf930696797d74a62899bd9c541c3dd7ad917446667"
+  },
+  "testRunnerIdentity": {
+    "name": "inspection_robot_hil_runner",
+    "version": "2026.04.21",
+    "runnerSha256": "2a6da19682dd37b5ccde9a8162de1e3ce29109d3e6bd18301d00b891a3f75f14"
+  }
+}

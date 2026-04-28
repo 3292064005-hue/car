@@ -10,8 +10,18 @@ robot_navigation:
     status_topic: /robot/navigation/status
     route_plan_path: __ROUTE_PLAN_PATH__
     provider_name: simple_nav_provider
+    nav2_simulation_smoke_artifact_path: /tmp/inspection_robot/nav2_simulation_smoke.json
+    nav2_host_harness_smoke_artifact_path: /tmp/inspection_robot/host_harness_acceptance.json
+    nav2_provider_switch_smoke_artifact_path: /tmp/inspection_robot/nav2_provider_switch_smoke.json
+    nav2_operator_docs_review_artifact_path: /tmp/inspection_robot/nav2_operator_docs_review.json
+    nav2_target_environment_acceptance_artifact_path: /tmp/inspection_robot/target_environment_acceptance.json
+    nav2_external_backend_smoke_artifact_path: /tmp/inspection_robot/nav2_external_backend_smoke.json
     goal_tolerance_m: 0.18
+    heading_slowdown_angle_rad: 1.2
+    # Deprecated compatibility alias. Keep only while older configs still read it.
     heading_slowdown_radius_m: 1.2
+    final_yaw_tolerance_rad: 0.12
+    rotate_in_place_threshold_rad: 0.7
     max_linear_m_s: 0.26
     max_angular_rad_s: 1.10
     angular_gain: 1.60

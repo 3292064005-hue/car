@@ -7,12 +7,14 @@ import { z } from 'zod';
         export const PROTOCOL_VERSION = WEB_PROTOCOL_VERSION;
         export const SCHEMA_VERSION = WEB_SCHEMA_VERSION;
         export const COMPATIBILITY_MODES = ["native-v4"] as const;
-        export const BRIDGE_CAPABILITIES = ["command-ack", "offline-session-replay", "layout-presets", "reports-export", "protocol-versioning", "odom-bridge", "battery-state", "transport-diagnostics", "fault-dictionary", "stale-flags", "compatibility-mode", "trace-correlation", "runtime-param-sync", "mode-capability-snapshot", "action-workflows", "qos-matrix", "web-bridge-components", "frontend-slices", "runtime-health-snapshot", "command-lifecycle-v2"] as const;
-        export const CANONICAL_BRIDGE_CAPABILITIES = ["command-ack", "offline-session-replay", "layout-presets", "reports-export", "protocol-versioning", "odom-bridge", "battery-state", "transport-diagnostics", "fault-dictionary", "stale-flags", "compatibility-mode", "trace-correlation", "runtime-param-sync", "mode-capability-snapshot", "action-workflows", "qos-matrix", "web-bridge-components", "frontend-slices", "runtime-health-snapshot", "command-lifecycle-v2"] as const;
+        export const BRIDGE_CAPABILITIES = ["command-ack", "offline-session-replay", "system-replay-bundle", "layout-presets", "reports-export", "protocol-versioning", "odom-bridge", "battery-state", "transport-diagnostics", "fault-dictionary", "stale-flags", "compatibility-mode", "trace-correlation", "runtime-param-sync", "mode-capability-snapshot", "action-workflows", "qos-matrix", "web-bridge-components", "frontend-slices", "runtime-health-snapshot", "command-lifecycle-v2"] as const;
+        export const CANONICAL_BRIDGE_CAPABILITIES = ["command-ack", "offline-session-replay", "system-replay-bundle", "layout-presets", "reports-export", "protocol-versioning", "odom-bridge", "battery-state", "transport-diagnostics", "fault-dictionary", "stale-flags", "compatibility-mode", "trace-correlation", "runtime-param-sync", "mode-capability-snapshot", "action-workflows", "qos-matrix", "web-bridge-components", "frontend-slices", "runtime-health-snapshot", "command-lifecycle-v2"] as const;
         export const DEPRECATED_BRIDGE_CAPABILITY_ALIASES = {} as const;
         export const COMMAND_TYPES = ["set_mode", "teleop_cmd", "stop_now", "estop", "resume_from_safe_stop", "start_patrol", "pause_patrol", "stop_patrol", "apply_param_draft", "apply_param_profile", "speak_fixed_text", "reset_fault", "save_snapshot"] as const;
         export const INBOUND_EVENT_TYPES = ["snapshot", "heartbeat", "connection_state", "mode_state", "chassis_state", "power_state", "vision_target", "vision_qrcode", "voice_cmd", "fault_event", "system_log", "task_event", "command_ack"] as const;
+        export const COMMAND_LIFECYCLE_PHASES = ["client_sent", "api_accepted", "bridge_queued", "handler_dispatched", "ros_accepted", "business_completed", "failed", "timed_out"] as const;
         export type GeneratedCommandType = typeof COMMAND_TYPES[number];
+        export type GeneratedCommandLifecyclePhase = typeof COMMAND_LIFECYCLE_PHASES[number];
         export type GeneratedInboundEventType = typeof INBOUND_EVENT_TYPES[number];
         export const RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE = 'backend_authoritative' as const;
         export const RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL = 'frontend_local' as const;
@@ -34,6 +36,7 @@ import { z } from 'zod';
         export const logDomainSchema = z.enum(['SYSTEM', 'BRIDGE', 'CONTROL', 'VISION', 'VOICE', 'TASK', 'SAFETY', 'PARAM', 'REPLAY', 'INSPECTOR', 'REPORT']);
         export const commandAckStatusSchema = z.enum(['queued', 'ack', 'rejected', 'denied', 'timeout', 'cancelled']);
         export const commandLifecycleStatusSchema = z.enum(['queued', 'accepted', 'applied', 'completed', 'rejected', 'denied', 'timeout', 'cancelled']);
+        export const commandLifecyclePhaseSchema = z.enum(COMMAND_LIFECYCLE_PHASES);
         export const commandPhaseSchema = z.enum(['idle', 'queued', 'accepted', 'running', 'completed', 'aborted', 'cancelled']);
         export const wakeStatusSchema = z.enum(['idle', 'listening', 'triggered']);
         export const compatibilityModeSchema = z.enum(COMPATIBILITY_MODES);
@@ -163,6 +166,11 @@ import { z } from 'zod';
           operatorReady: z.boolean().optional(),
           operatorReadyReasons: z.array(z.string()).optional(),
           operatorReadyTopic: z.string().nullable().optional(),
+          surfaceId: z.string().optional(),
+          surfaceLayers: z.array(z.string()).optional(),
+          surfaceAuthorityModel: z.string().optional(),
+          surfaceWriteEnabled: z.boolean().optional(),
+          surfaceMachineGateAllowed: z.boolean().optional(),
           sessionRole: z.string().optional(),
           sessionRequestedRole: z.string().optional(),
           sessionWriteEnabled: z.boolean().optional(),
@@ -273,7 +281,30 @@ import { z } from 'zod';
 
 
         export const reportSeveritySchema = z.enum(['info', 'success', 'warn', 'error']);
-        export const reportKindSchema = z.enum(['control_summary', 'monitor_summary', 'monitor_diagnostics', 'localization_summary', 'hardware_interface_summary', 'navigation_status', 'navigation_path', 'runtime_supervision']);
+        export const REPORT_SURFACE_KEYS = ["controlSummary", "monitorSummary", "monitorDiagnostics", "localizationSummary", "hardwareInterfaceSummary", "navigationStatus", "voiceIngressHealth", "navigationPath", "runtimeSupervision"] as const;
+        export const REPORT_SURFACE_KIND_TO_KEY = {
+  "control_summary": "controlSummary",
+  "monitor_summary": "monitorSummary",
+  "monitor_diagnostics": "monitorDiagnostics",
+  "localization_summary": "localizationSummary",
+  "hardware_interface_summary": "hardwareInterfaceSummary",
+  "navigation_status": "navigationStatus",
+  "voice_ingress_health": "voiceIngressHealth",
+  "navigation_path": "navigationPath",
+  "runtime_supervision": "runtimeSupervision"
+} as const;
+        export const REPORT_SURFACE_KEY_TO_KIND = {
+  "controlSummary": "control_summary",
+  "monitorSummary": "monitor_summary",
+  "monitorDiagnostics": "monitor_diagnostics",
+  "localizationSummary": "localization_summary",
+  "hardwareInterfaceSummary": "hardware_interface_summary",
+  "navigationStatus": "navigation_status",
+  "voiceIngressHealth": "voice_ingress_health",
+  "navigationPath": "navigation_path",
+  "runtimeSupervision": "runtime_supervision"
+} as const;
+        export const reportKindSchema = z.enum(["control_summary", "monitor_summary", "monitor_diagnostics", "localization_summary", "hardware_interface_summary", "navigation_status", "voice_ingress_health", "navigation_path", "runtime_supervision"]);
 
         export const reportSelectedCommandSchema = z.object({
           vx: z.number().nullable().optional(),
@@ -414,6 +445,14 @@ import { z } from 'zod';
           poseCount: z.number().nullable().optional(),
           hasPath: z.boolean().nullable().optional(),
         }).passthrough();
+        export const reportRuntimeSupervisionComponentSchema = z.object({
+          componentId: z.string(),
+          requiredForMainline: z.boolean(),
+          recoveryOwner: z.string(),
+          runtimeTopics: z.array(z.string()),
+          status: z.string(),
+          missingFields: z.array(z.string()),
+        });
         export const reportRuntimeSupervisionDetailsSchema = z.object({
           reasons: z.array(z.string()),
           startupBarrierReady: z.boolean(),
@@ -422,6 +461,7 @@ import { z } from 'zod';
           lifecycleManager: reportRuntimeSupervisionLifecycleSchema,
           bondSupervision: reportRuntimeSupervisionBondSchema,
           recoveryPlan: reportRuntimeSupervisionRecoveryPlanSchema,
+          orchestrationComponents: z.record(z.string(), reportRuntimeSupervisionComponentSchema).optional(),
         });
 
         export const reportSurfaceEntryBaseSchema = z.object({
@@ -478,7 +518,7 @@ import { z } from 'zod';
           reportNavigationStatusEntrySchema,
           reportVoiceIngressHealthEntrySchema,
           reportNavigationPathEntrySchema,
-          reportRuntimeSupervisionEntrySchema,
+          reportRuntimeSupervisionEntrySchema
         ]);
         export type GeneratedReportSurfaceEntry = z.infer<typeof reportSurfaceEntrySchema>;
 
@@ -514,6 +554,7 @@ import { z } from 'zod';
           commandId: z.string().min(1),
           status: commandAckStatusSchema,
           lifecycleStatus: commandLifecycleStatusSchema.optional(),
+          lifecyclePhase: commandLifecyclePhaseSchema.optional(),
           message: z.string().optional(),
           detail: z.string().optional(),
         });
@@ -559,7 +600,12 @@ import { z } from 'zod';
           stop_now: z.object({ source: z.literal('frontend') }),
           estop: z.object({ source: z.literal('frontend') }),
           resume_from_safe_stop: z.object({ source: z.literal('frontend') }),
-          start_patrol: z.object({ source: z.literal('frontend') }),
+          start_patrol: z.object({
+            source: z.literal('frontend'),
+            missionId: z.string().min(1).optional(),
+            routeName: z.string().min(1).optional(),
+            taskProfile: z.string().min(1).optional(),
+          }),
           pause_patrol: z.object({ source: z.literal('frontend') }),
           stop_patrol: z.object({ source: z.literal('frontend') }),
           apply_param_draft: z.object({ params: runtimeParamPatchSchema.refine((value) => Object.keys(value).length > 0, 'runtime param patch must not be empty'), source: z.literal('frontend') }),

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { robotBridge } from '@/bridge/client';
 import { commandButtonState } from '@/bridge/commandPolicy';
+import { FeatureMaturityPills } from '@/components/FeatureMaturityPills';
 import { SectionCard } from '@/components/SectionCard';
 import { clamp } from '@/shared/utils';
 import { useRobotStore } from '@/store/useRobotStore';
@@ -23,6 +24,7 @@ export function TeleopPanel() {
   const idleModeState = commandButtonState('set_mode', { mode: 'IDLE', source: 'frontend' });
   const stopNowState = commandButtonState('stop_now', { source: 'frontend' });
   const disabled = ui.demoReadonly;
+  const teleopButtonsDisabled = teleopState.disabled || disabled;
 
   const velocity = useMemo(() => {
     const linear = intent.forward === intent.backward ? 0 : intent.forward ? params.maxLinearSpeed : -params.maxLinearSpeed;
@@ -43,6 +45,11 @@ export function TeleopPanel() {
     };
 
     const onDown = (event: KeyboardEvent) => {
+      if (event.code === 'Space') {
+        stopAll();
+        return;
+      }
+      if (teleopButtonsDisabled) return;
       if (pressedRef.current.has(event.code)) return;
       pressedRef.current.add(event.code);
       if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') setArmed(true);
@@ -50,7 +57,6 @@ export function TeleopPanel() {
       if (event.code === 'KeyS') setIntent((prev) => ({ ...prev, backward: true }));
       if (event.code === 'KeyA') setIntent((prev) => ({ ...prev, left: true }));
       if (event.code === 'KeyD') setIntent((prev) => ({ ...prev, right: true }));
-      if (event.code === 'Space') stopAll();
     };
 
     const onUp = (event: KeyboardEvent) => {
@@ -70,17 +76,26 @@ export function TeleopPanel() {
       window.removeEventListener('keyup', onUp);
       window.removeEventListener('blur', stopAll);
     };
-  }, [motion.mode, stopNowState.disabled]);
+  }, [motion.mode, stopNowState.disabled, teleopButtonsDisabled]);
 
   useEffect(() => {
     if (!armed || ui.demoReadonly) return;
+    if (teleopState.disabled) return;
     const timer = window.setInterval(() => {
       robotBridge.send('teleop_cmd', { linear: velocity.linear, angular: velocity.angular, source: 'frontend' }, '持续手动控制');
     }, 120);
     return () => window.clearInterval(timer);
-  }, [armed, disabled, velocity.angular, velocity.linear]);
+  }, [armed, teleopState.disabled, ui.demoReadonly, velocity.angular, velocity.linear]);
+
+  useEffect(() => {
+    if (!teleopState.disabled) return;
+    pressedRef.current.clear();
+    setArmed(false);
+    setIntent(emptyIntent);
+  }, [teleopState.disabled]);
 
   const holdIntent = (patch: Partial<TeleopIntent>) => {
+    if (teleopButtonsDisabled) return;
     setArmed(true);
     setIntent({ ...emptyIntent, ...patch });
   };
@@ -94,7 +109,7 @@ export function TeleopPanel() {
   };
 
   return (
-    <SectionCard title="手动控制">
+    <SectionCard title="手动控制" right={<FeatureMaturityPills featureIds={['operator.teleop_control', 'operator.mode_switch']} />}>
       <div className="teleop-grid">
         <div className="teleop-readout">
           <p><strong>当前模式：</strong>{motion.mode}</p>
@@ -104,22 +119,22 @@ export function TeleopPanel() {
           <p><strong>风险提示：</strong>{teleopState.reason || (motion.mode !== 'MANUAL' || connection.reconnecting ? '当前不满足推荐 teleop 条件，命令仍会发送，最终以后端 ACK 为准。' : '当前满足推荐 teleop 条件。')}</p>
         </div>
         <div className="teleop-actions">
-          <button className="primary-btn" title={manualModeState.reason} disabled={ui.demoReadonly || manualModeState.disabled} onClick={() => robotBridge.send('set_mode', { mode: 'MANUAL', source: 'frontend' }, '进入 MANUAL')}>
+          <button className="primary-btn" title={manualModeState.reason} disabled={disabled || manualModeState.disabled} onClick={() => robotBridge.send('set_mode', { mode: 'MANUAL', source: 'frontend' }, '进入 MANUAL')}>
             进入 MANUAL
           </button>
-          <button className="ghost-btn" title={idleModeState.reason} disabled={ui.demoReadonly || idleModeState.disabled} onClick={() => robotBridge.send('set_mode', { mode: 'IDLE', source: 'frontend' }, '回到 IDLE')}>
+          <button className="ghost-btn" title={idleModeState.reason} disabled={disabled || idleModeState.disabled} onClick={() => robotBridge.send('set_mode', { mode: 'IDLE', source: 'frontend' }, '回到 IDLE')}>
             回到 IDLE
           </button>
-          <button className="danger-btn" title={stopNowState.reason} disabled={ui.demoReadonly || stopNowState.disabled} onClick={() => robotBridge.send('stop_now', { source: 'frontend' }, '立即停车')}>
+          <button className="danger-btn" title={stopNowState.reason} disabled={disabled || stopNowState.disabled} onClick={() => robotBridge.send('stop_now', { source: 'frontend' }, '立即停车')}>
             立即停车
           </button>
         </div>
       </div>
       <div className="teleop-buttons teleop-button-grid">
-        <button className="ghost-btn" title={teleopState.reason} disabled={disabled} onMouseDown={() => holdIntent({ forward: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住前进</button>
-        <button className="ghost-btn" title={teleopState.reason} disabled={disabled} onMouseDown={() => holdIntent({ backward: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住后退</button>
-        <button className="ghost-btn" title={teleopState.reason} disabled={disabled} onMouseDown={() => holdIntent({ left: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住左转</button>
-        <button className="ghost-btn" title={teleopState.reason} disabled={disabled} onMouseDown={() => holdIntent({ right: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住右转</button>
+        <button className="ghost-btn" title={teleopState.reason} disabled={teleopButtonsDisabled} onMouseDown={() => holdIntent({ forward: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住前进</button>
+        <button className="ghost-btn" title={teleopState.reason} disabled={teleopButtonsDisabled} onMouseDown={() => holdIntent({ backward: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住后退</button>
+        <button className="ghost-btn" title={teleopState.reason} disabled={teleopButtonsDisabled} onMouseDown={() => holdIntent({ left: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住左转</button>
+        <button className="ghost-btn" title={teleopState.reason} disabled={teleopButtonsDisabled} onMouseDown={() => holdIntent({ right: true })} onMouseUp={releaseIntent} onMouseLeave={releaseIntent}>按住右转</button>
       </div>
       <p className="muted">键盘持续控制：先进入 MANUAL，再按住 Shift 作为 deadman，同时用 W/A/S/D 控制方向；空格立即停车。</p>
     </SectionCard>

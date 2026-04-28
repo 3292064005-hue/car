@@ -1,5 +1,7 @@
-#include "gateway_runtime.h"
+#include "board_runtime_boundary.h"
+#include "host_harness_entry.h"
+
 int main(void) {
-    gateway_runtime_print_boot_report(gateway_runtime_load_default());
-    return 0;
+    gateway_print_runtime_boundary(gateway_board_runtime_boundary());
+    return gateway_host_harness_main();
 }

@@ -74,6 +74,22 @@ def _load_config_defaults(config_file: str | None) -> dict[str, object]:
     }
 
 
+
+
+def _derive_config_root(config_file: str | None) -> str:
+    """Return the config root directory for product-interface artifacts.
+
+    Args:
+        config_file: Optional API server YAML path.
+
+    Returns:
+        Parent directory of the config file when it exists, otherwise an empty
+        string so downstream loaders fall back to repository defaults.
+    """
+    if not config_file:
+        return ''
+    return str(Path(config_file).resolve().parent)
+
 def build_parser(defaults: dict[str, object] | None = None) -> argparse.ArgumentParser:
     defaults = defaults or {}
     auth_defaults = defaults.get('auth', {}) if isinstance(defaults.get('auth', {}), dict) else {}
@@ -111,6 +127,7 @@ async def _run_async(args: argparse.Namespace) -> None:
         upstream_session_token=args.upstream_session_token,
         internal_command_socket_path=args.internal_command_socket_path,
         internal_command_auth_token=args.internal_command_auth_token,
+        config_root=_derive_config_root(args.config_file or None),
     )
     await server.start()
     try:

@@ -128,3 +128,97 @@ def test_decision_destroy_node_notifies_shutdown() -> None:
 
     assert calls == ['shutdown']
     assert result is True
+
+
+class _StartPatrolAction:
+    class Result:
+        def __init__(self) -> None:
+            self.success = False
+            self.message = ''
+            self.trace_id = ''
+            self.final_mode = ''
+            self.completed_points = 0
+            self.progress = 0.0
+
+    class Feedback:
+        def __init__(self) -> None:
+            self.phase = ''
+            self.step_name = ''
+            self.step_index = 0
+            self.completed_points = 0
+            self.total_points = 0
+            self.progress = 0.0
+            self.message = ''
+            self.trace_id = ''
+
+
+class _PatrolGoalHandle:
+    def __init__(self) -> None:
+        self.request = type('Request', (), {
+            'mission_id': 'missing_mission',
+            'route_name': '',
+            'task_profile': '',
+            'requested_by': 'test',
+            'reason': 'start_patrol',
+            'trace_id': 'trace-patrol',
+        })()
+        self.is_cancel_requested = False
+        self.status = None
+        self.feedback = []
+
+    def publish_feedback(self, feedback) -> None:
+        self.feedback.append(feedback)
+
+    def succeed(self) -> None:
+        self.status = 'succeeded'
+
+    def abort(self) -> None:
+        self.status = 'aborted'
+
+    def canceled(self) -> None:
+        self.status = 'canceled'
+
+
+class _PatrolNode:
+    def __init__(self) -> None:
+        self._actions = {'StartPatrol': _StartPatrolAction}
+        self._action_lock = threading.RLock()
+        self._active_patrol_goal = None
+        self.current_mode = 'IDLE'
+        self.context = type('Context', (), {
+            'navigation_completed_goals': 0,
+            'patrol_index': 0,
+            'active_action_progress': 0.0,
+            'active_action_name': '',
+            'active_action_phase': 'idle',
+            'active_action_message': '',
+        })()
+
+    def state_guard(self):
+        class _Guard:
+            def __enter__(self):
+                return None
+            def __exit__(self, exc_type, exc, tb):
+                return False
+        return _Guard()
+
+    def resolve_patrol_mission(self, *, mission_id: str = '', route_name: str = ''):
+        raise ValueError(f'unsupported mission_id: {mission_id!r}')
+
+    def request_mode_change(self, mode: str, requested_by: str, reason: str):
+        return True, 'ok'
+
+
+def test_start_patrol_invalid_mission_returns_action_abort_result(monkeypatch) -> None:
+    monkeypatch.setattr(action_runtime_module.rclpy, 'ok', lambda: True)
+    node = _PatrolNode()
+    runtime = ActionRuntime(node)
+    goal_handle = _PatrolGoalHandle()
+
+    result = runtime.execute_start_patrol(goal_handle)
+
+    assert result.success is False
+    assert 'unsupported mission_id' in result.message
+    assert result.trace_id == 'trace-patrol'
+    assert goal_handle.status == 'aborted'
+    assert node.context.active_action_phase == 'aborted'

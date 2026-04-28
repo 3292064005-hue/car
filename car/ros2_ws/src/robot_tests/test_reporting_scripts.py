@@ -144,3 +144,110 @@ def test_generated_mode_transition_artifact_matches_backend_catalog() -> None:
     assert payload['authority'] == 'backend_mode_catalog'
     assert payload['transitions']['IDLE'] == ['MANUAL', 'PATROL', 'SAFE_STOP', 'FAULT']
     assert payload['transitions']['FAULT'] == ['IDLE']
+
+
+def test_repository_boundary_report_script_runs() -> None:
+    payload = _run('render_repository_boundary_report.py')
+    assert payload['repositoryRole'] == 'ubuntu_authoritative_runtime_plus_board_boundary_contract'
+    assert payload['repositoryClaims']['boardRuntimeInRepo'] is True
+    assert payload['authoritativeWriteEntry'] == 'robot_api_server:9100/ws'
+
+
+def test_feature_admission_report_script_runs() -> None:
+    payload = _run('render_feature_admission_report.py')
+    assert payload['reportScope'] == 'feature_admission_governance'
+    assert payload['status'] == 'ok'
+    assert 'operator.mode_switch' in payload['features']
+
+
+def test_capability_ownership_report_script_runs() -> None:
+    payload = _run('render_capability_ownership_report.py')
+    assert payload['reportScope'] == 'capability_ownership'
+    assert payload['commandOwners']['teleop_cmd'] == 'operator.teleop_control'
+    assert 'runtime_supervision' in payload['machineGateReports']
+
+
+def test_lane_lifecycle_report_script_runs() -> None:
+    payload = _run('render_lane_lifecycle_report.py')
+    assert payload['reportScope'] == 'lane_lifecycle'
+    assert 'navigation.nav2_provider' in payload['experimentalLanes']
+    assert 'bridge_runtime.legacy_monolith' in payload['rollbackOnlyLanes']
+    assert 'navigation.simple_nav_provider' in payload['defaultVisibleLanes']
+    assert 'navigation.nav2_provider' in payload['hiddenByDefaultLanes']
+
+
+def test_system_replay_report_script_runs() -> None:
+    payload = _run('render_system_replay_report.py')
+    assert payload['reportScope'] == 'system_replay_evidence'
+    assert payload['frontendReplay']['countsAsSystemEvidence'] is False
+    assert 'mcap' in payload['systemReplay']['supportedFormats']
+    assert payload['systemReplay']['kind'] == 'system-replay-bundle'
+
+
+def test_runtime_topology_manifest_script_runs() -> None:
+    payload = _run('render_runtime_topology_manifest.py')
+    assert payload['reportScope'] == 'runtime_topology_manifest'
+    assert payload['surfaces']['frontend']['runtimeSurface']['websocketSurfaceKind'] == 'api_facade'
+    assert payload['surfaces']['web_bridge']['runtimeSurface']['websocketSurfaceKind'] == 'bridge_observer'
+    assert 'operator_phase' in payload['startupSequence']
+    assert 'navigation.simple_nav_provider' in payload['defaultVisibleLanes']
+    assert 'bridge_runtime.legacy_monolith' in payload['hiddenByDefaultLanes']
+
+
+def test_build_system_replay_bundle_script_rejects_missing_required_session_metadata_file(tmp_path) -> None:
+    output = tmp_path / 'bundle.json'
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS / 'build_system_replay_bundle.py'),
+            '--session-metadata',
+            str(tmp_path / 'missing.json'),
+            '--output',
+            str(output),
+        ],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+    )
+    assert proc.returncode != 0
+    assert 'required JSON input not found' in (proc.stderr or proc.stdout)
+
+
+def test_build_system_replay_bundle_script_writes_valid_bundle(tmp_path) -> None:
+    session = tmp_path / 'session.json'
+    history = tmp_path / 'history.json'
+    session.write_text(json.dumps({
+        'sessionId': 's1',
+        'profileName': 'mock',
+        'providerName': 'nav2_provider',
+        'hardwareRole': 'ros_soft_driver',
+        'evidenceClass': 'target_environment',
+    }), encoding='utf-8')
+    history.write_text(json.dumps({
+        'latency': [],
+        'battery': [],
+        'leftWheel': [],
+        'rightWheel': [],
+        'frameDrops': [],
+        'ackLatency': [],
+    }), encoding='utf-8')
+    output = tmp_path / 'bundle.json'
+    subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPTS / 'build_system_replay_bundle.py'),
+            '--session-metadata',
+            str(session),
+            '--history',
+            str(history),
+            '--output',
+            str(output),
+        ],
+        cwd=str(ROOT),
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    payload = json.loads(output.read_text(encoding='utf-8'))
+    assert payload['kind'] == 'system-replay-bundle'
+    assert payload['history']['ackLatency'] == []

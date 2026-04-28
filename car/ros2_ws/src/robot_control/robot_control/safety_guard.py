@@ -52,31 +52,31 @@ def apply_safety(
         out.angular.z = 0.0
         latched = True
         reason = 'chassis_state_stale'
-    elif chassis_state is not None and chassis_state.estop:
+    elif chassis_state is not None and bool(getattr(chassis_state, 'estop', False)):
         out.linear.x = 0.0
         out.angular.z = 0.0
         latched = True
         reason = 'estop'
-    elif chassis_state is not None and not chassis_state.comm_ok:
+    elif chassis_state is not None and not bool(getattr(chassis_state, 'comm_ok', True)):
         out.linear.x = 0.0
         out.angular.z = 0.0
         latched = True
         reason = 'chassis_comm_lost'
-    elif chassis_state is not None and not chassis_state.heartbeat_ok:
+    elif chassis_state is not None and not bool(getattr(chassis_state, 'heartbeat_ok', True)):
         out.linear.x = 0.0
         out.angular.z = 0.0
         latched = True
         reason = 'chassis_heartbeat_lost'
-    elif fault is not None and fault.level in {FAULT_LEVEL_ERROR, FAULT_LEVEL_FATAL}:
+    elif fault is not None and getattr(fault, 'level', None) in {FAULT_LEVEL_ERROR, FAULT_LEVEL_FATAL}:
         out.linear.x = 0.0
         out.angular.z = 0.0
         latched = True
-        reason = f'fault_level:{fault.code or "unknown"}'
-    elif fault is not None and fault.code in BLOCKING_FAULT_CODES:
+        reason = f'fault_level:{getattr(fault, "code", None) or "unknown"}'
+    elif fault is not None and getattr(fault, 'code', None) in BLOCKING_FAULT_CODES:
         out.linear.x = 0.0
         out.angular.z = 0.0
         latched = True
-        reason = f'blocking_fault:{fault.code}'
+        reason = f'blocking_fault:{getattr(fault, "code", "unknown")}'
 
     if include_reason:
         return out, latched, reason

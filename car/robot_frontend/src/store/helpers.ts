@@ -43,7 +43,19 @@ export function applyCommandTimeouts(commands: CommandRecord[], timeoutBoundary:
     if (item.status !== 'queued' && item.status !== 'sent') return item;
     const created = new Date(item.createdAt).getTime();
     if (now - created <= timeoutBoundary) return item;
-    return { ...item, status: 'timeout', updatedAt: safeNowIso(), error: '命令等待 ACK 超时' };
+    const timestamp = safeNowIso();
+    return {
+      ...item,
+      status: 'timeout',
+      lifecycleStatus: 'timeout',
+      lifecyclePhase: 'timed_out',
+      lifecycleHistory: [
+        { phase: 'timed_out' as const, status: 'timeout' as const, timestamp, message: '命令等待 ACK 超时' },
+        ...item.lifecycleHistory,
+      ].slice(0, 12),
+      updatedAt: timestamp,
+      error: '命令等待 ACK 超时',
+    };
   });
 }
 

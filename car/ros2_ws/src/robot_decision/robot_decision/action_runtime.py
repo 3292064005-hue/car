@@ -85,10 +85,31 @@ class ActionRuntime:
         action_type = self._node._actions['StartPatrol']
         goal = goal_handle.request
         trace_id = str(getattr(goal, 'trace_id', '') or '')
-        ok, message = self._node.request_mode_change(MODE_PATROL, getattr(goal, 'requested_by', 'action'), getattr(goal, 'reason', 'start_patrol_action'))
+        mission_id = str(getattr(goal, 'mission_id', '') or getattr(goal, 'missionId', '') or '')
+        route_name = str(getattr(goal, 'route_name', '') or getattr(goal, 'routeName', '') or '')
+        task_profile = str(getattr(goal, 'task_profile', '') or getattr(goal, 'taskProfile', '') or '')
         result = action_type.Result()
         if hasattr(result, 'trace_id'):
             result.trace_id = trace_id
+        try:
+            resolved_mission = self._node.resolve_patrol_mission(mission_id=mission_id, route_name=route_name)
+        except ValueError as exc:
+            with self._node.state_guard():
+                self._node.context.active_action_name = 'start_patrol'
+                self._node.context.active_action_phase = 'aborted'
+                self._node.context.active_action_progress = 0.0
+                self._node.context.active_action_message = str(exc)
+            result.success = False
+            result.message = str(exc)
+            result.final_mode = self._node.current_mode
+            result.completed_points = int(self._node.context.navigation_completed_goals or self._node.context.patrol_index)
+            result.progress = float(self._node.context.active_action_progress)
+            goal_handle.abort()
+            self.notify_state_change()
+            return result
+        with self._node.state_guard():
+            self._node.context.active_task_profile = task_profile or resolved_mission.task_profile
+        ok, message = self._node.request_mode_change(MODE_PATROL, getattr(goal, 'requested_by', 'action'), getattr(goal, 'reason', 'start_patrol_action'))
         if not ok:
             result.success = False
             result.message = message
@@ -161,13 +182,13 @@ class ActionRuntime:
         action_type = self._node._actions['TrackTarget']
         goal = goal_handle.request
         trace_id = str(getattr(goal, 'trace_id', '') or '')
+        result = action_type.Result()
+        if hasattr(result, 'trace_id'):
+            result.trace_id = trace_id
         min_confidence = float(getattr(goal, 'min_confidence', 0.0) or 0.0)
         if min_confidence > 0.0:
             self._node.track_manager.min_confidence = min_confidence
         ok, message = self._node.request_mode_change(MODE_TRACK, getattr(goal, 'requested_by', 'action'), getattr(goal, 'reason', 'track_target_action'))
-        result = action_type.Result()
-        if hasattr(result, 'trace_id'):
-            result.trace_id = trace_id
         if not ok:
             result.success = False
             result.message = message

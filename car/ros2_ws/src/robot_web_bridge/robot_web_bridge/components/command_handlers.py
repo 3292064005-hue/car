@@ -17,7 +17,7 @@ def coerce_float_field(payload: Mapping[str, Any], *, router: Any, meta: Any, de
     try:
         return router._coerce_float_field(payload, *keys, default=default)
     except ValueError as exc:
-        router._reject(meta.event_id, meta.command_type, str(exc), trace_id=meta.trace_id)
+        router._reject(meta.event_id, meta.command_type, str(exc), trace_id=meta.trace_id, detail='invalid_command_payload')
         return None
 
 
@@ -49,10 +49,10 @@ class CommandHandlers:
         """Queue one authoritative ``/robot/set_mode`` request."""
         requested_mode = str(mode or '').strip().upper()
         if not requested_mode:
-            self.router._reject(meta.event_id, meta.command_type, 'requested mode must be non-empty', trace_id=meta.trace_id)
+            self.router._reject(meta.event_id, meta.command_type, 'requested mode must be non-empty', trace_id=meta.trace_id, detail='mode_transition_guard_rejected')
             return
         if not self.router._wait_for_service(self.router.node.mode_client, name='/robot/set_mode'):
-            self.router._deny(meta.event_id, meta.command_type, '/robot/set_mode service unavailable', trace_id=meta.trace_id)
+            self.router._deny(meta.event_id, meta.command_type, '/robot/set_mode service unavailable', trace_id=meta.trace_id, detail='service:/robot/set_mode')
             return
         req = SetMode.Request()
         req.requested_by = operator_id
@@ -70,10 +70,10 @@ class CommandHandlers:
         """Handle one generic mode-change request."""
         requested_mode = str(payload.get('mode', '')).strip().upper()
         if not requested_mode:
-            self.router._reject(meta.event_id, meta.command_type, 'set_mode requires non-empty mode', trace_id=meta.trace_id)
+            self.router._reject(meta.event_id, meta.command_type, 'set_mode requires non-empty mode', trace_id=meta.trace_id, detail='mode_transition_guard_rejected')
             return
         if requested_mode == 'PATROL':
-            self.router._dispatch_patrol_action(self.router._make_action_binding(meta, action_name='start_patrol'), operator_id=operator_id, reason=reason)
+            self.router._dispatch_patrol_action(self.router._make_action_binding(meta, action_name='start_patrol'), operator_id=operator_id, reason=reason, payload=payload)
             return
         if requested_mode == 'TRACK':
             self.router._dispatch_track_action(self.router._make_action_binding(meta, action_name='track_target'), operator_id=operator_id, reason=reason, payload=payload)
@@ -81,8 +81,7 @@ class CommandHandlers:
         self._queue_set_mode(meta=meta, mode=requested_mode, reason=reason, operator_id=operator_id, action_name='set_mode')
 
     def handle_start_patrol(self, *, meta: Any, payload: Mapping[str, Any], reason: str, operator_id: str) -> None:
-        del payload
-        self.router._dispatch_patrol_action(self.router._make_action_binding(meta, action_name='start_patrol'), operator_id=operator_id, reason=reason)
+        self.router._dispatch_patrol_action(self.router._make_action_binding(meta, action_name='start_patrol'), operator_id=operator_id, reason=reason, payload=payload)
 
     def handle_pause_patrol(self, *, meta: Any, payload: Mapping[str, Any], reason: str, operator_id: str) -> None:
         del payload
@@ -116,56 +115,105 @@ class CommandHandlers:
         twist.linear.x = linear
         twist.angular.z = angular
         self.router.node.manual_pub.publish(twist)
-        self.router._send_ack(meta.event_id, meta.command_type, 'accepted', 'teleop command forwarded', trace_id=meta.trace_id)
+        self.router._record_phase(meta.event_id, meta.command_type, 'ros_accepted', 'applied', 'teleop command published to /robot/manual/cmd_vel', trace_id=meta.trace_id, extra={'rosTopic': '/robot/manual/cmd_vel'})
+        self.router._send_ack(meta.event_id, meta.command_type, 'applied', 'teleop command published to /robot/manual/cmd_vel', trace_id=meta.trace_id)
 
     def handle_stop_now(self, *, meta: Any, payload: Mapping[str, Any], reason: str, operator_id: str) -> None:
         del payload, reason, operator_id
-        self.router.node.manual_pub.publish(Twist())
-        self.router._send_ack(meta.event_id, meta.command_type, 'accepted', 'stop command forwarded', trace_id=meta.trace_id)
+        twist = Twist()
+        twist.linear.x = 0.0
+        twist.angular.z = 0.0
+        self.router.node.manual_pub.publish(twist)
+        self.router._record_phase(meta.event_id, meta.command_type, 'ros_accepted', 'applied', 'stop command published to /robot/manual/cmd_vel', trace_id=meta.trace_id, extra={'rosTopic': '/robot/manual/cmd_vel'})
+        self.router._send_ack(meta.event_id, meta.command_type, 'applied', 'stop command published to /robot/manual/cmd_vel', trace_id=meta.trace_id)
 
     def handle_speak_fixed_text(self, *, meta: Any, payload: Mapping[str, Any], reason: str, operator_id: str) -> None:
-        if not self.router._wait_for_service(self.router.node.speak_client, name='/robot/voice/speak'):
-            self.router._deny(meta.event_id, meta.command_type, '/robot/voice/speak service unavailable', trace_id=meta.trace_id)
-            return
-        text = str(payload.get('text', '')).strip()
+        """Publish one fixed-text speech request to the voice queue.
+
+        Args:
+            meta: Command envelope metadata used for ACK, trace, and audit.
+            payload: Operator payload. ``text`` is accepted as the product API
+                field and is mapped to ``SpeakRequest.text_id`` because the
+                downstream board protocol consumes the canonical message field.
+            reason: Human-readable dispatch reason retained for auditing.
+            operator_id: Authoritative session/operator identity.
+
+        Returns:
+            None.
+
+        Raises:
+            None. Invalid payloads are rejected through the command lifecycle.
+
+        Boundary behavior:
+            This is a topic command. The terminal ACK is ``applied`` and means
+            that the request was published to ``/robot/speak_req`` for
+            ``robot_voice`` to consume. It does not claim physical speaker
+            output; that remains target-environment acceptance evidence.
+        """
+        del reason
+        text = str(payload.get('text') or payload.get('text_id') or payload.get('textId') or '').strip()
         if not text:
-            self.router._reject(meta.event_id, meta.command_type, 'speak_fixed_text requires non-empty text', trace_id=meta.trace_id)
+            self.router._reject(meta.event_id, meta.command_type, 'speak_fixed_text requires non-empty text', trace_id=meta.trace_id, detail='empty_speak_text')
             return
-        req = SpeakRequest.Request()
-        req.text = text
-        req.priority = int(payload.get('priority', 1) or 1)
-        req.requested_by = str(payload.get('requestedBy') or operator_id)
-        if hasattr(req, 'reason'):
-            req.reason = reason
-        if hasattr(req, 'trace_id'):
-            req.trace_id = meta.trace_id
-        future = self.router.node.speak_client.call_async(req)
-        self.router.pending_speak_acks[future] = self.router._make_pending_ack(meta)
-        self.router._register_timeout(future, meta=self.router.pending_speak_acks[future], kind='speak_service', action_name='speak_fixed_text')
-        future.add_done_callback(self.router.on_speak_done)
-        self.router._audit(meta.event_id, meta.command_type, 'queued', 'voice request queued')
+        try:
+            priority = int(payload.get('priority', 1) or 1)
+        except (TypeError, ValueError):
+            self.router._reject(meta.event_id, meta.command_type, 'speak_fixed_text priority must be an integer', trace_id=meta.trace_id, detail='invalid_speak_priority')
+            return
+        req = SpeakRequest()
+        req.text_id = text
+        req.priority = max(0, min(10, priority))
+        req.requested_by = str(payload.get('requestedBy') or payload.get('requested_by') or operator_id)
+        req.trace_id = meta.trace_id
+        self.router.node.speak_pub.publish(req)
+        self.router._record_phase(meta.event_id, meta.command_type, 'ros_accepted', 'applied', 'voice request published to /robot/speak_req', trace_id=meta.trace_id, extra={'rosTopic': '/robot/speak_req'})
+        self.router._send_ack(meta.event_id, meta.command_type, 'applied', 'voice request queued on /robot/speak_req', trace_id=meta.trace_id)
+        self.router._audit(meta.event_id, meta.command_type, 'applied', 'voice request published to /robot/speak_req')
 
     def handle_save_snapshot(self, *, meta: Any, payload: Mapping[str, Any], reason: str, operator_id: str) -> None:
+        """Dispatch snapshot capture through the action path or strict service fallback.
+
+        Args:
+            meta: Command envelope metadata used for ACK, trace, and audit.
+            payload: Snapshot payload. ``reason`` can override the command
+                reason for audit clarity; arbitrary file naming fields are not
+                written to ``SaveSnapshot.srv`` because the service contract
+                exposes only ``reason`` and ``trace_id``.
+            reason: Human-readable dispatch reason.
+            operator_id: Session/operator id; only the action goal consumes it.
+
+        Returns:
+            None.
+
+        Raises:
+            None. Missing runtime endpoints are denied through the command lifecycle.
+
+        Boundary behavior:
+            The action server is preferred. If it is unavailable, service
+            fallback remains compatible by using exactly the request fields
+            declared in ``robot_msgs/srv/SaveSnapshot.srv``.
+        """
         del operator_id
         action_binding = self.router._make_action_binding(meta, action_name='save_snapshot')
         if self.router.snapshot_action_client is not None and self.router._wait_for_action_server(self.router.snapshot_action_client, name='/robot/actions/save_snapshot'):
             self.router._dispatch_snapshot_action(action_binding, reason=reason, payload=payload)
             return
         if not self.router._wait_for_service(self.router.node.snapshot_client, name='/robot/save_snapshot'):
-            self.router._deny(meta.event_id, meta.command_type, '/robot/save_snapshot service unavailable', trace_id=meta.trace_id)
+            self.router._deny(meta.event_id, meta.command_type, '/robot/save_snapshot service unavailable', trace_id=meta.trace_id, detail='service:/robot/save_snapshot')
             return
         req = SaveSnapshot.Request()
-        req.filename = str(payload.get('filename') or '').strip()
+        req.reason = str(payload.get('reason') or reason or '').strip()
+        req.trace_id = meta.trace_id
         future = self.router.node.snapshot_client.call_async(req)
         self.router.pending_snapshot_acks[future] = self.router._make_pending_ack(meta)
-        self.router._register_timeout(future, meta=self.router.pending_snapshot_acks[future], kind='snapshot_service', action_name='save_snapshot')
+        self.router._register_timeout(future, meta=self.router.pending_snapshot_acks[future], kind='save_snapshot_service', action_name='save_snapshot')
         future.add_done_callback(self.router.on_snapshot_done)
-        self.router._audit(meta.event_id, meta.command_type, 'queued', 'snapshot request queued')
+        self.router._audit(meta.event_id, meta.command_type, 'queued', 'snapshot service fallback request queued')
 
     def handle_reset_fault(self, *, meta: Any, payload: Mapping[str, Any], reason: str, operator_id: str) -> None:
         del payload
         if not self.router._wait_for_service(self.router.node.reset_client, name='/robot/reset_fault'):
-            self.router._deny(meta.event_id, meta.command_type, '/robot/reset_fault service unavailable', trace_id=meta.trace_id)
+            self.router._deny(meta.event_id, meta.command_type, '/robot/reset_fault service unavailable', trace_id=meta.trace_id, detail='service:/robot/reset_fault')
             return
         req = ResetFault.Request()
         req.requested_by = operator_id

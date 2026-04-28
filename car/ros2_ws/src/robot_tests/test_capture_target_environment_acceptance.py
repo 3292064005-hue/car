@@ -30,6 +30,11 @@ def _write_acceptance_artifact(path: Path, *, artifact_type: str, passed: bool, 
         'sourceReleaseIdentity': {
             'workspaceManifestPath': '/tmp/workspace_manifest.json',
             'workspaceManifestSha256': 'manifest-sha',
+            'workspaceId': 'single_root_canonical:manifest',
+            'artifactId': 'inspection_robot_source:artifact',
+            'sourceTreeSha256': 'source-sha',
+            'layoutMode': 'single_root_canonical',
+            'includedFileCount': 1,
         },
         'hardwareIdentity': {'boardId': 'board-a', 'boardClass': 'xmate'} if hardware else {},
         'firmwareIdentity': {'firmwareVersion': '1.0.0', 'firmwareSha256': 'fw-sha'} if firmware else {},
@@ -66,6 +71,11 @@ def _identity(*, hardware_identity=None, firmware_identity=None) -> dict:
         'sourceReleaseIdentity': {
             'workspaceManifestPath': '/tmp/workspace_manifest.json',
             'workspaceManifestSha256': 'manifest-sha',
+            'workspaceId': 'single_root_canonical:manifest',
+            'artifactId': 'inspection_robot_source:artifact',
+            'sourceTreeSha256': 'source-sha',
+            'layoutMode': 'single_root_canonical',
+            'includedFileCount': 1,
         },
         'hardwareIdentity': dict(hardware_identity or {}),
         'firmwareIdentity': dict(firmware_identity or {}),
@@ -154,6 +164,7 @@ def test_capture_target_environment_acceptance_rejects_artifacts_with_mismatched
         payload['verificationIdentity']['protocolIdentity']['tcpProtocolDocSha256'] = 'forged-tcp'
         payload['verificationIdentity']['protocolIdentity']['uartProtocolDocSha256'] = 'forged-uart'
         payload['verificationIdentity']['sourceReleaseIdentity']['workspaceManifestSha256'] = 'forged-manifest'
+        payload['verificationIdentity']['sourceReleaseIdentity']['sourceTreeSha256'] = 'forged-source-sha'
         path.write_text(json.dumps(payload), encoding='utf-8')
 
     _forged(host_report)

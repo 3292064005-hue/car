@@ -14,6 +14,7 @@ from robot_msgs.msg import ChassisState, PowerState
 from robot_utils.helpers import monotonic_time, safe_json_dumps
 from robot_utils.qos_profiles import qos_for
 from .hardware_adapter import WheelDriveEstimator, build_hardware_boundary_snapshot
+from .hardware_contract import HARDWARE_RUNTIME_CONTRACT_VERSION
 
 
 class RobotHardwareInterfaceNode(Node):
@@ -27,10 +28,14 @@ class RobotHardwareInterfaceNode(Node):
         super().__init__('robot_hardware_interface')
         self.declare_parameter('joint_state_topic', '/joint_states')
         self.declare_parameter('battery_state_topic', '/battery_state')
-        self.declare_parameter('cmd_vel_observed_topic', '/cmd_vel')
+        self.declare_parameter('cmd_vel_observed_topic', '/robot/hardware/cmd_vel_observed')
+        self.declare_parameter('enable_cmd_vel_alias', False)
         self.declare_parameter('summary_topic', '/robot/hardware_interface/summary')
         self.declare_parameter('description_path', '')
         self.declare_parameter('hardware_interface_config_path', '')
+        self.declare_parameter('bridge_config_path', '')
+        self.declare_parameter('host', '127.0.0.1')
+        self.declare_parameter('port', 9000)
         self.declare_parameter('left_wheel_joint_name', 'left_wheel_joint')
         self.declare_parameter('right_wheel_joint_name', 'right_wheel_joint')
         self.declare_parameter('compatibility_surface_role', 'ros_projection_only')
@@ -70,12 +75,14 @@ class RobotHardwareInterfaceNode(Node):
             verification_reference_config_path=(Path(config_path).resolve().parent if config_path else None),
         )
 
+        cmd_vel_observed_topic = self._resolve_cmd_vel_observed_topic()
+
         self._last_power: PowerState | None = None
         self._wheel_estimator = WheelDriveEstimator()
         self._latest_joint_state: JointState | None = None
         self._latest_cmd: Twist | None = None
 
-        self.cmd_pub = self.create_publisher(Twist, str(self.get_parameter('cmd_vel_observed_topic').value), qos_for('control_cmd'))
+        self.cmd_pub = self.create_publisher(Twist, cmd_vel_observed_topic, qos_for('control_cmd'))
         self.joint_pub = self.create_publisher(JointState, str(self.get_parameter('joint_state_topic').value), qos_for('telemetry'))
         self.battery_pub = self.create_publisher(BatteryState, str(self.get_parameter('battery_state_topic').value), qos_for('telemetry'))
         self.summary_pub = self.create_publisher(String, str(self.get_parameter('summary_topic').value), qos_for('status_summary'))
@@ -85,8 +92,34 @@ class RobotHardwareInterfaceNode(Node):
         self.create_subscription(PowerState, '/robot/power_state', self.on_power_state, qos_for('telemetry'))
         self.summary_timer = self.create_timer(0.5, self.publish_summary)
 
+    def _resolve_cmd_vel_observed_topic(self) -> str:
+        """Resolve the non-authoritative observed command topic.
+
+        Args:
+            None.
+
+        Returns:
+            The topic used to mirror the final command for ROS tooling.
+
+        Raises:
+            ValueError: When a config attempts to publish ``/cmd_vel`` without
+                the explicit ``enable_cmd_vel_alias`` compatibility opt-in.
+
+        Boundary behavior:
+            ``/robot/cmd_vel_final`` remains the project-owned authoritative
+            control output. The observed topic is a projection/diagnostic
+            surface. Publishing the external ``/cmd_vel`` alias is disabled
+            by default so external controllers cannot mistake projection for
+            command authority.
+        """
+        topic = str(self.get_parameter('cmd_vel_observed_topic').value or '').strip() or '/robot/hardware/cmd_vel_observed'
+        alias_enabled = bool(self.get_parameter('enable_cmd_vel_alias').value)
+        if topic == '/cmd_vel' and not alias_enabled:
+            raise ValueError('cmd_vel_observed_topic=/cmd_vel requires enable_cmd_vel_alias=true; /robot/cmd_vel_final remains authoritative')
+        return topic
+
     def on_final_cmd(self, msg: Twist) -> None:
-        """Mirror the final control output onto the standard ``/cmd_vel`` surface.
+        """Mirror final control output onto the configured non-authoritative observed surface.
 
         Args:
             msg: Final control command selected by ``robot_control``.
@@ -158,14 +191,23 @@ class RobotHardwareInterfaceNode(Node):
         Raises:
             None.
         """
-        boundary = self._boundary_snapshot.to_dict()
+        boundary = self._boundary_snapshot.to_dict(deployment_tier='host_harness')
+        runtime_contract = boundary.get('runtimeContract', {}) if isinstance(boundary.get('runtimeContract'), dict) else {}
         payload: dict[str, Any] = {
             'jointStateAvailable': self._latest_joint_state is not None,
             'batteryStateAvailable': self._last_power is not None,
             'cmdObserved': self._latest_cmd is not None,
+            'cmdVelObservedTopic': str(self.get_parameter('cmd_vel_observed_topic').value),
+            'cmdVelAliasEnabled': bool(self.get_parameter('enable_cmd_vel_alias').value),
+            'commandAuthorityTopic': '/robot/cmd_vel_final',
+            'externalCompatibilityAliasTopic': '/cmd_vel' if bool(self.get_parameter('enable_cmd_vel_alias').value) else None,
             'descriptionLoaded': self._description_loaded,
             'robotName': self._description_robot_name,
             'boundary': boundary,
+            'runtimeContractVersion': runtime_contract.get('contractVersion', HARDWARE_RUNTIME_CONTRACT_VERSION),
+            'hardwareDomains': runtime_contract.get('domains', []),
+            'commandAuthorityInsideRos': runtime_contract.get('commandAuthorityInsideRos', False),
+            'telemetryAuthorityInsideRos': runtime_contract.get('telemetryAuthorityInsideRos', False),
             'transportAuthority': boundary['transportAuthority'],
             'verificationStage': boundary['verificationStage'],
             'executionEvidenceClass': boundary['executionEvidenceClass'],

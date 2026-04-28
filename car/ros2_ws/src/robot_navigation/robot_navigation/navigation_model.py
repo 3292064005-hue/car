@@ -40,6 +40,49 @@ class NavigationCommand:
     goal_reached: bool
     distance_m: float
     heading_error_rad: float
+    position_reached: bool = False
+    yaw_error_rad: float = 0.0
+    phase: str = 'approach'
+
+
+DEFAULT_HEADING_SLOWDOWN_ANGLE_RAD = 1.2
+DEFAULT_FINAL_YAW_TOLERANCE_RAD = 0.12
+
+
+def validate_navigation_parameters(
+    *,
+    goal_tolerance_m: float,
+    heading_slowdown_angle_rad: float,
+    heading_slowdown_radius_m: float,
+    final_yaw_tolerance_rad: float,
+    rotate_in_place_threshold_rad: float,
+    max_linear_m_s: float,
+    max_angular_rad_s: float,
+    angular_gain: float,
+    linear_gain: float,
+    control_rate_hz: float,
+    goal_pose_terminal_yaw_enabled: bool,
+) -> None:
+    if goal_tolerance_m <= 0.0:
+        raise ValueError('goal_tolerance_m must be > 0')
+    if heading_slowdown_angle_rad <= 0.0 and heading_slowdown_radius_m <= 0.0:
+        raise ValueError('heading_slowdown_angle_rad or heading_slowdown_radius_m must be > 0')
+    if final_yaw_tolerance_rad <= 0.0:
+        raise ValueError('final_yaw_tolerance_rad must be > 0')
+    if rotate_in_place_threshold_rad <= 0.0:
+        raise ValueError('rotate_in_place_threshold_rad must be > 0')
+    if max_linear_m_s <= 0.0:
+        raise ValueError('max_linear_m_s must be > 0')
+    if max_angular_rad_s <= 0.0:
+        raise ValueError('max_angular_rad_s must be > 0')
+    if angular_gain <= 0.0:
+        raise ValueError('angular_gain must be > 0')
+    if linear_gain <= 0.0:
+        raise ValueError('linear_gain must be > 0')
+    if control_rate_hz <= 0.0:
+        raise ValueError('control_rate_hz must be > 0')
+    if not isinstance(goal_pose_terminal_yaw_enabled, bool):
+        raise ValueError('goal_pose_terminal_yaw_enabled must be a boolean')
 
 
 def _float_value(name: str, value: Any) -> float:
@@ -119,7 +162,29 @@ def build_path(*, start: Pose2D, goal: Goal2D, interpolation_step_m: float = 0.1
     return [(start.x + dx * index / steps, start.y + dy * index / steps) for index in range(steps + 1)]
 
 
-def compute_navigation_command(*, pose: Pose2D, goal: Goal2D, max_linear_m_s: float, max_angular_rad_s: float, goal_tolerance_m: float, heading_slowdown_radius_m: float, angular_gain: float, linear_gain: float) -> NavigationCommand:
+def _resolve_heading_slowdown_angle_rad(*, heading_slowdown_angle_rad: float | None, heading_slowdown_radius_m: float | None, goal_tolerance_m: float) -> float:
+    candidate = heading_slowdown_angle_rad
+    if candidate is None or candidate <= 0.0:
+        candidate = heading_slowdown_radius_m
+    if candidate is None or candidate <= 0.0:
+        candidate = DEFAULT_HEADING_SLOWDOWN_ANGLE_RAD
+    return float(candidate)
+
+
+def compute_navigation_command(
+    *,
+    pose: Pose2D,
+    goal: Goal2D,
+    max_linear_m_s: float,
+    max_angular_rad_s: float,
+    goal_tolerance_m: float,
+    angular_gain: float,
+    linear_gain: float,
+    heading_slowdown_angle_rad: float | None = None,
+    final_yaw_tolerance_rad: float = DEFAULT_FINAL_YAW_TOLERANCE_RAD,
+    rotate_in_place_threshold_rad: float | None = None,
+    heading_slowdown_radius_m: float | None = None,
+) -> NavigationCommand:
     """Compute one proportional navigation command toward the active goal.
 
     Args:
@@ -127,28 +192,53 @@ def compute_navigation_command(*, pose: Pose2D, goal: Goal2D, max_linear_m_s: fl
         goal: Target goal.
         max_linear_m_s: Linear speed cap.
         max_angular_rad_s: Angular speed cap.
-        goal_tolerance_m: Distance threshold treated as success.
-        heading_slowdown_radius_m: Radius used to taper linear velocity.
+        goal_tolerance_m: Distance threshold treated as positional convergence.
         angular_gain: Heading controller gain.
         linear_gain: Distance controller gain.
+        heading_slowdown_angle_rad: Heading-error angle used to taper linear velocity.
+        final_yaw_tolerance_rad: Heading tolerance for terminal yaw alignment.
+        rotate_in_place_threshold_rad: Heading error above which translation is suppressed.
+        heading_slowdown_radius_m: Deprecated compatibility alias for ``heading_slowdown_angle_rad``.
 
     Returns:
         Navigation command plus convergence metadata.
 
     Raises:
-        ValueError: If speed caps or tolerance are invalid.
+        ValueError: If speed caps or tolerances are invalid.
     """
     if max_linear_m_s <= 0.0 or max_angular_rad_s <= 0.0:
         raise ValueError('speed caps must be > 0')
     if goal_tolerance_m <= 0.0:
         raise ValueError('goal_tolerance_m must be > 0')
+    if final_yaw_tolerance_rad <= 0.0:
+        raise ValueError('final_yaw_tolerance_rad must be > 0')
+
+    heading_slowdown_angle_rad = _resolve_heading_slowdown_angle_rad(
+        heading_slowdown_angle_rad=heading_slowdown_angle_rad,
+        heading_slowdown_radius_m=heading_slowdown_radius_m,
+        goal_tolerance_m=goal_tolerance_m,
+    )
+    rotate_in_place_threshold_rad = heading_slowdown_angle_rad if rotate_in_place_threshold_rad is None else float(rotate_in_place_threshold_rad)
+    if rotate_in_place_threshold_rad <= 0.0:
+        raise ValueError('rotate_in_place_threshold_rad must be > 0')
+
     distance = math.hypot(goal.x - pose.x, goal.y - pose.y)
-    heading_error = normalize_angle(math.atan2(goal.y - pose.y, goal.x - pose.x) - pose.yaw)
-    if distance <= goal_tolerance_m:
-        return NavigationCommand(0.0, 0.0, True, distance, heading_error)
+    heading_target = math.atan2(goal.y - pose.y, goal.x - pose.x)
+    heading_error = normalize_angle(heading_target - pose.yaw)
+    yaw_error = 0.0 if goal.yaw is None else normalize_angle(goal.yaw - pose.yaw)
+    position_reached = distance <= goal_tolerance_m
+    yaw_reached = goal.yaw is None or abs(yaw_error) <= final_yaw_tolerance_rad
+
+    if position_reached and yaw_reached:
+        return NavigationCommand(0.0, 0.0, True, distance, heading_error, True, yaw_error, 'reached')
+
+    if position_reached and goal.yaw is not None:
+        turn_rate = max(-max_angular_rad_s, min(max_angular_rad_s, yaw_error * angular_gain))
+        return NavigationCommand(0.0, turn_rate, False, distance, heading_error, True, yaw_error, 'align_yaw')
+
     turn_rate = max(-max_angular_rad_s, min(max_angular_rad_s, heading_error * angular_gain))
-    heading_scale = max(0.0, 1.0 - min(1.0, abs(heading_error) / max(heading_slowdown_radius_m, goal_tolerance_m)))
+    heading_scale = max(0.0, 1.0 - min(1.0, abs(heading_error) / heading_slowdown_angle_rad))
     linear_speed = min(max_linear_m_s, distance * linear_gain) * heading_scale
-    if abs(heading_error) > math.pi / 2.0:
+    if abs(heading_error) >= rotate_in_place_threshold_rad:
         linear_speed = 0.0
-    return NavigationCommand(linear_speed, turn_rate, False, distance, heading_error)
+    return NavigationCommand(linear_speed, turn_rate, False, distance, heading_error, False, yaw_error, 'approach')

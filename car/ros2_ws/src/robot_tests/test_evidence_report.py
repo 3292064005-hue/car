@@ -49,7 +49,7 @@ def test_build_evidence_report_can_mark_final_delivery_eligible_with_verified_ta
         'launchProfilesPath': '/tmp/config/launch_profiles.yaml',
         'configDigest': 'cfg-digest',
         'protocolIdentity': {'webProtocolVersion': '4.1.0', 'schemaVersion': '2026-03-31', 'tcpProtocolVersion': '4.1.0', 'uartProtocolVersion': '4.1.0', 'tcpProtocolDocSha256': 'tcp-doc', 'uartProtocolDocSha256': 'uart-doc'},
-        'sourceReleaseIdentity': {'workspaceManifestPath': '/tmp/workspace_manifest.json', 'workspaceManifestSha256': 'manifest-sha'},
+        'sourceReleaseIdentity': {'workspaceManifestPath': '/tmp/workspace_manifest.json', 'workspaceManifestSha256': 'manifest-sha', 'workspaceId': 'single_root_canonical:manifest', 'artifactId': 'inspection_robot_source:artifact', 'sourceTreeSha256': 'source-sha', 'layoutMode': 'single_root_canonical', 'includedFileCount': 1},
         'hardwareIdentity': {},
         'firmwareIdentity': {},
     }
@@ -87,7 +87,7 @@ def test_build_evidence_report_rejects_target_acceptance_with_mismatched_referen
         'launchProfilesPath': '/tmp/config/launch_profiles.yaml',
         'configDigest': 'cfg-digest',
         'protocolIdentity': {'webProtocolVersion': '4.1.0', 'schemaVersion': '2026-03-31', 'tcpProtocolVersion': '4.1.0', 'uartProtocolVersion': '4.1.0', 'tcpProtocolDocSha256': 'forged-tcp', 'uartProtocolDocSha256': 'forged-uart'},
-        'sourceReleaseIdentity': {'workspaceManifestPath': '/tmp/workspace_manifest.json', 'workspaceManifestSha256': 'forged-manifest'},
+        'sourceReleaseIdentity': {'workspaceManifestPath': '/tmp/workspace_manifest.json', 'workspaceManifestSha256': 'forged-manifest', 'workspaceId': 'single_root_canonical:manifest', 'artifactId': 'inspection_robot_source:artifact', 'sourceTreeSha256': 'forged-source-sha', 'layoutMode': 'single_root_canonical', 'includedFileCount': 1},
         'hardwareIdentity': {},
         'firmwareIdentity': {},
     }
@@ -97,7 +97,7 @@ def test_build_evidence_report_rejects_target_acceptance_with_mismatched_referen
         'launchProfilesPath': '/tmp/config/launch_profiles.yaml',
         'configDigest': 'cfg-digest',
         'protocolIdentity': {'webProtocolVersion': '4.1.0', 'schemaVersion': '2026-03-31', 'tcpProtocolVersion': '4.1.0', 'uartProtocolVersion': '4.1.0', 'tcpProtocolDocSha256': 'tcp-doc', 'uartProtocolDocSha256': 'uart-doc'},
-        'sourceReleaseIdentity': {'workspaceManifestPath': '/tmp/workspace_manifest.json', 'workspaceManifestSha256': 'manifest-sha'},
+        'sourceReleaseIdentity': {'workspaceManifestPath': '/tmp/workspace_manifest.json', 'workspaceManifestSha256': 'manifest-sha', 'workspaceId': 'single_root_canonical:manifest', 'artifactId': 'inspection_robot_source:artifact', 'sourceTreeSha256': 'source-sha', 'layoutMode': 'single_root_canonical', 'includedFileCount': 1},
         'hardwareIdentity': {},
         'firmwareIdentity': {},
     }

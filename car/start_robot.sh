@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Usage:
   ./start_robot.sh backend [profile] [--skip-preflight] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]
-  ./start_robot.sh backend-rollback [profile] [--skip-preflight] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]
+  ./start_robot.sh backend-rollback [profile] [--skip-preflight] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]  # explicit rollback-only bridge lane
   ./start_robot.sh frontend [profile] [--config-path PATH] [--preflight-report-dir DIR]
   ./start_robot.sh web_bridge [profile] [--build-if-needed|--no-build-if-needed] [--config-path PATH] [--preflight-report-dir DIR]
   ./start_robot.sh release-verify [--config-path PATH] [--skip-npm-ci] [--with-frontend] [--with-ros-smoke] [--with-integrated-frontend-smoke]

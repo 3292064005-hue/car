@@ -5,10 +5,13 @@ import {
   DEFAULT_PARAMS,
   DEFAULT_WAYPOINTS,
   DEMO_READONLY,
+  ENABLE_MOCK,
   MJPEG_URL,
   PARAM_PRESETS,
   PROTOCOL_VERSION,
-  SCHEMA_VERSION
+  SCHEMA_VERSION,
+  WS_AUTHORITY,
+  WS_SURFACE_KIND
 } from '@/shared/constants';
 import { deepCloneParams, safeNowIso, uuid } from '@/shared/utils';
 import type {
@@ -76,7 +79,11 @@ export const initialConnection: ConnectionState = {
   operatorSurfaceReadyTopic: null,
   operatorReady: false,
   operatorReadyReasons: ['operator_surface_not_ready'],
-  operatorReadyTopic: null
+  operatorReadyTopic: null,
+  websocketSurfaceKind: WS_SURFACE_KIND,
+  websocketSurfaceAuthority: WS_AUTHORITY,
+  websocketSurfaceMismatch: !ENABLE_MOCK && WS_SURFACE_KIND !== 'api_facade',
+  websocketSurfaceMismatchReason: !ENABLE_MOCK && WS_SURFACE_KIND !== 'api_facade' ? 'frontend_not_connected_to_authoritative_operator_api' : null
 };
 
 export const initialMotion: MotionState = {
@@ -239,6 +246,11 @@ export function makeCommand(id: string, type: CommandType, summary: string, prio
     id,
     type,
     status: 'queued',
+    lifecycleStatus: 'queued',
+    lifecyclePhase: 'client_sent',
+    lifecycleHistory: [
+      { phase: 'client_sent', status: 'queued', timestamp: now, message: 'command created by frontend' },
+    ],
     summary,
     createdAt: now,
     updatedAt: now,

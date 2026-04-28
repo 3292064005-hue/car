@@ -33,34 +33,87 @@ def _simple_message_type(name: str):
     return _Message
 
 
-def _service_type(name: str):
-    class Request:
+def _strict_message_type(name: str, fields: tuple[str, ...]):
+    class _Message:
+        __slots__ = fields
+
         def __init__(self, **kwargs):
-            self.trace_id = ''
-            self.requested_by = ''
-            self.reason = ''
-            self.mode = ''
-            self.filename = ''
-            self.text = ''
-            self.priority = 0
-            for key, value in kwargs.items():
-                setattr(self, key, value)
+            for field in fields:
+                setattr(self, field, kwargs.pop(field, _default_for_field(field)))
+            if kwargs:
+                raise AttributeError(f'{name} has no fields: {sorted(kwargs)}')
+    _Message.__name__ = name
+    return _Message
+
+
+def _default_for_field(field: str):
+    if field in {'priority', 'seq', 'total_goals', 'completed_goals'}:
+        return 0
+    if field in {'success', 'accepted', 'estop', 'heartbeat_ok'}:
+        return False
+    if field in {'progress', 'confidence', 'linear_x', 'angular_z'}:
+        return 0.0
+    return ''
+
+
+
+def _service_type(name: str):
+    request_fields_by_name = {
+        'SaveSnapshot': ('reason', 'trace_id'),
+        'ResetFault': ('requested_by', 'reason', 'trace_id'),
+        'SetMode': ('requested_by', 'reason', 'mode', 'trace_id'),
+        'TriggerSpeak': ('text_id', 'priority'),
+    }
+    response_fields_by_name = {
+        'SaveSnapshot': ('success', 'message', 'filepath', 'trace_id'),
+        'ResetFault': ('success', 'message'),
+        'SetMode': ('success', 'message', 'current_mode'),
+        'TriggerSpeak': ('success', 'message'),
+    }
+
+    request_fields = request_fields_by_name.get(name, ('trace_id', 'requested_by', 'reason'))
+    response_fields = response_fields_by_name.get(name, ('success', 'message'))
+
+    class Request:
+        __slots__ = request_fields
+
+        def __init__(self, **kwargs):
+            for field in request_fields:
+                setattr(self, field, kwargs.pop(field, _default_for_field(field)))
+            if kwargs:
+                raise AttributeError(f'{name}.Request has no fields: {sorted(kwargs)}')
 
     class Response:
+        __slots__ = response_fields
+
         def __init__(self, **kwargs):
-            self.success = False
-            self.message = ''
-            self.filepath = ''
-            for key, value in kwargs.items():
-                setattr(self, key, value)
+            for field in response_fields:
+                setattr(self, field, kwargs.pop(field, _default_for_field(field)))
+            if kwargs:
+                raise AttributeError(f'{name}.Response has no fields: {sorted(kwargs)}')
 
     return type(name, (), {'Request': Request, 'Response': Response})
 
 
 def _action_type(name: str):
-    goal = _simple_message_type('Goal')
-    result = _simple_message_type('Result')
-    feedback = _simple_message_type('Feedback')
+    goal_fields_by_name = {
+        'StartPatrol': ('requested_by', 'reason', 'trace_id', 'mission_id', 'route_name', 'task_profile'),
+        'TrackTarget': ('requested_by', 'reason', 'trace_id', 'target_type', 'min_confidence'),
+        'SaveSnapshotTask': ('requested_by', 'reason', 'trace_id'),
+    }
+    result_fields_by_name = {
+        'StartPatrol': ('success', 'message', 'trace_id'),
+        'TrackTarget': ('success', 'message', 'trace_id'),
+        'SaveSnapshotTask': ('success', 'message', 'filepath', 'trace_id'),
+    }
+    feedback_fields_by_name = {
+        'StartPatrol': ('phase', 'message', 'progress', 'trace_id'),
+        'TrackTarget': ('phase', 'message', 'progress', 'trace_id'),
+        'SaveSnapshotTask': ('phase', 'message', 'trace_id'),
+    }
+    goal = _strict_message_type('Goal', goal_fields_by_name.get(name, ()))
+    result = _strict_message_type('Result', result_fields_by_name.get(name, ()))
+    feedback = _strict_message_type('Feedback', feedback_fields_by_name.get(name, ()))
     return type(name, (), {'Goal': goal, 'Result': result, 'Feedback': feedback})
 
 
@@ -153,10 +206,11 @@ def _install_ros_test_stubs() -> None:
 
     robot_pkg = _ensure_module('robot_msgs')
     robot_msg = _ensure_module('robot_msgs.msg')
-    for name in ['ChassisState','EventLog','Fault','ModeState','PowerState','SpeakRequest','SystemStatus','VisionTarget','VoiceCommand']:
+    for name in ['ChassisState','EventLog','Fault','ModeState','PowerState','SystemStatus','VisionTarget','VoiceCommand']:
         setattr(robot_msg, name, _simple_message_type(name))
+    robot_msg.SpeakRequest = _strict_message_type('SpeakRequest', ('text_id', 'priority', 'requested_by', 'trace_id'))
     robot_srv = _ensure_module('robot_msgs.srv')
-    for name in ['ResetFault','SaveSnapshot','SetMode']:
+    for name in ['ResetFault','SaveSnapshot','SetMode','TriggerSpeak']:
         setattr(robot_srv, name, _service_type(name))
     robot_action = _ensure_module('robot_msgs.action')
     for name in ['StartPatrol','TrackTarget','SaveSnapshotTask']:

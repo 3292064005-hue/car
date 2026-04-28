@@ -5,6 +5,7 @@ import math
 import time
 
 from robot_contracts.bridge_contract import command_allowed_modes
+from robot_contracts.command_route_registry import command_route_handler_name
 from robot_utils.action_support import load_robot_actions
 from .components.command_handlers import CommandHandlers
 from .components.command_application_service import CommandApplicationService
@@ -92,6 +93,11 @@ class CommandRouter:
         self._execution = CommandExecutionService(self, operation_timeout_sec=self._operation_timeout_sec, monotonic=self._monotonic, action_client_factory=ActionClient, action_loader=load_robot_actions)
         self._command_handlers = CommandHandlers(self)
         self._handlers = self._command_handlers.build_registry()
+        for command_type, handler in sorted(self._handlers.items()):
+            expected_handler = command_route_handler_name(command_type)
+            actual_handler = getattr(handler, '__name__', '')
+            if expected_handler and actual_handler and expected_handler != actual_handler:
+                raise RuntimeError(f'command handler mismatch for {command_type}: expected {expected_handler}, got {actual_handler}')
         self._command_application = CommandApplicationService(self, self._handlers)
 
     def __getattr__(self, name: str) -> Any:
@@ -103,17 +109,17 @@ class CommandRouter:
     def _record_phase(self, event_id: str, command_type: str, phase: str, status: str, message: str, *, trace_id: str = '', extra: Mapping[str, Any] | None = None) -> None:
         command_runtime.record_phase(self, event_id, command_type, phase, status, message, trace_id=trace_id, extra=extra)
 
-    def _send_ack(self, event_id: str, command_type: str, lifecycle_status: str, message: str, *, trace_id: str = '', detail: str = '') -> None:
-        command_runtime.send_ack(self, event_id, command_type, lifecycle_status, message, trace_id=trace_id, detail=detail)
+    def _send_ack(self, event_id: str, command_type: str, lifecycle_status: str, message: str, *, trace_id: str = '', detail: str = '', lifecycle_phase: str = '') -> None:
+        command_runtime.send_ack(self, event_id, command_type, lifecycle_status, message, trace_id=trace_id, detail=detail, lifecycle_phase=lifecycle_phase)
 
     def _update_task_state(self, payload: Mapping[str, Any]) -> None:
         command_runtime.update_task_state(self, payload)
 
-    def _deny(self, event_id: str, command_type: str, message: str, *, trace_id: str = '') -> None:
-        command_runtime.deny(self, event_id, command_type, message, trace_id=trace_id)
+    def _deny(self, event_id: str, command_type: str, message: str, *, trace_id: str = '', detail: str = '', source_surface: str = '') -> None:
+        command_runtime.deny(self, event_id, command_type, message, trace_id=trace_id, detail=detail, source_surface=source_surface)
 
-    def _reject(self, event_id: str, command_type: str, message: str, *, trace_id: str = '') -> None:
-        command_runtime.reject(self, event_id, command_type, message, trace_id=trace_id)
+    def _reject(self, event_id: str, command_type: str, message: str, *, trace_id: str = '', detail: str = '', source_surface: str = '') -> None:
+        command_runtime.reject(self, event_id, command_type, message, trace_id=trace_id, detail=detail, source_surface=source_surface)
 
     def _wait_for_service(self, client: Any, *, name: str) -> bool:
         return command_runtime.wait_for_service(self, client, name=name)

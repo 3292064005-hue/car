@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from urllib.parse import urlsplit
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,6 +13,7 @@ for pkg in SRC.iterdir():
         sys.path.insert(0, str(pkg))
 
 from robot_api_server.api_server_main import _load_config_defaults
+from robot_contracts.runtime_parameters import validate_vision_runtime_params
 
 
 def _load_bridge_session_defaults(config_file: str) -> dict[str, object]:
@@ -47,12 +49,47 @@ def validate_file(path: Path) -> tuple[bool, str]:
             validate_launch_profiles(data)
         elif name == 'vision.yaml':
             validate_ros_params(data, 'robot_vision', required=('stream_url', 'poll_period', 'snapshot_dir', 'enable_debug_overlay', 'capture_process_enabled', 'capture_ipc_queue_max'))
+            params = data.get('robot_vision', {}).get('ros__parameters', {}) if isinstance(data, dict) else {}
+            errors = validate_vision_runtime_params(params if isinstance(params, dict) else {})
+            if errors:
+                raise ConfigValidationError(f'robot_vision runtime parameter validation failed: {errors}')
         elif name == 'bridge.yaml':
             validate_ros_params(data, 'robot_bridge', required=('host', 'port', 'heartbeat_period'))
             bridge_auth = _load_bridge_session_defaults(str(path))
             default_role = str(bridge_auth.get('default_role', 'observer')).strip().lower()
             if default_role not in {'operator', 'observer', 'readonly'}:
                 raise ConfigValidationError('robot_bridge.default_session_role must be operator/observer/readonly')
+            bridge_params = data.get('robot_bridge', {}).get('ros__parameters', {}) if isinstance(data, dict) else {}
+            family = str(bridge_params.get('standard_observability_bridge_family', 'disabled')).strip() or 'disabled'
+            if family not in {'disabled', 'repo_readonly_websocket', 'rosbridge_suite', 'foxglove_bridge', 'custom_command'}:
+                raise ConfigValidationError('robot_bridge.standard_observability_bridge_family must be disabled/repo_readonly_websocket/rosbridge_suite/foxglove_bridge/custom_command')
+            port = int(bridge_params.get('standard_observability_bridge_port', 8765) or 8765)
+            if port <= 0:
+                raise ConfigValidationError('robot_bridge.standard_observability_bridge_port must be > 0')
+            ws_path = str(bridge_params.get('standard_observability_bridge_ws_path', '/observability')).strip() or '/observability'
+            if not ws_path.startswith('/'):
+                raise ConfigValidationError('robot_bridge.standard_observability_bridge_ws_path must start with /')
+            readonly_topics = bridge_params.get('standard_observability_bridge_readonly_topics', [])
+            if not isinstance(readonly_topics, list):
+                raise ConfigValidationError('robot_bridge.standard_observability_bridge_readonly_topics must be a list')
+            if bool(bridge_params.get('enable_standard_observability_bridge', False)) and family == 'disabled':
+                raise ConfigValidationError('robot_bridge.enable_standard_observability_bridge requires a non-disabled bridge family')
+            if bool(bridge_params.get('enable_standard_observability_bridge', False)):
+                host = str(bridge_params.get('standard_observability_bridge_listen_host', '127.0.0.1') or '127.0.0.1').strip() or '127.0.0.1'
+                if bool(bridge_params.get('standard_observability_bridge_require_localhost', True)) and host not in {'127.0.0.1', 'localhost'}:
+                    raise ConfigValidationError('robot_bridge.standard_observability_bridge_listen_host must stay localhost when require_localhost=true')
+                if family != 'repo_readonly_websocket':
+                    raise ConfigValidationError('robot_bridge.enable_standard_observability_bridge=true requires standard_observability_bridge_family=repo_readonly_websocket inside this repo')
+                upstream_url = str(bridge_params.get('standard_observability_bridge_upstream_url', 'ws://127.0.0.1:9001/ws') or 'ws://127.0.0.1:9001/ws').strip() or 'ws://127.0.0.1:9001/ws'
+                if not upstream_url.startswith(('ws://', 'wss://')):
+                    raise ConfigValidationError('robot_bridge.standard_observability_bridge_upstream_url must start with ws:// or wss://')
+                upstream_parts = urlsplit(upstream_url)
+                if str(upstream_parts.hostname or '').strip() not in {'127.0.0.1', 'localhost'}:
+                    raise ConfigValidationError('robot_bridge.standard_observability_bridge_upstream_url must point to localhost observer surface inside this repo')
+                if not readonly_topics:
+                    raise ConfigValidationError('robot_bridge.standard_observability_bridge_readonly_topics must be non-empty when enable_standard_observability_bridge=true')
+                if bridge_params.get('standard_observability_bridge_command', []):
+                    raise ConfigValidationError('robot_bridge.standard_observability_bridge_command must stay empty when enable_standard_observability_bridge=true; the repo-audited runtime command is fixed by contract')
         elif name == 'control.yaml':
             validate_ros_params(data, 'robot_control', required=('max_linear', 'max_angular', 'publish_rate_hz'))
         elif name == 'decision.yaml':
@@ -85,6 +122,18 @@ def validate_file(path: Path) -> tuple[bool, str]:
             normalize_description_payload(data)
             if not packaged_xacro_matches_description():
                 raise ConfigValidationError('robot_description xacro is out of sync with description.yaml')
+        elif name == 'fleet_adapter.yaml':
+            params = data.get('robot_fleet_adapter_boundary', {}).get('ros__parameters', {}) if isinstance(data, dict) else {}
+            family = str(params.get('fleet_adapter_family', 'disabled')).strip() or 'disabled'
+            if family not in {'disabled', 'open_rmf', 'free_fleet', 'custom_scheduler'}:
+                raise ConfigValidationError('robot_fleet_adapter_boundary.fleet_adapter_family must be disabled/open_rmf/free_fleet/custom_scheduler')
+            for field_name in ('fleet_task_ingress_topic', 'fleet_status_topic'):
+                value = str(params.get(field_name, '')).strip()
+                if not value.startswith('/'):
+                    raise ConfigValidationError(f'robot_fleet_adapter_boundary.{field_name} must start with /')
+            accepted = params.get('fleet_accepted_task_kinds', [])
+            if not isinstance(accepted, list) or not all(str(item).strip() for item in accepted):
+                raise ConfigValidationError('robot_fleet_adapter_boundary.fleet_accepted_task_kinds must be a non-empty string list')
         elif name == 'api_server.yaml':
             defaults = _load_config_defaults(str(path))
             if not defaults['listen_host']:

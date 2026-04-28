@@ -33,17 +33,24 @@ from robot_contracts.bridge_contract import (  # type: ignore
 from robot_contracts.launch_contract import resolve_runtime  # type: ignore
 from robot_utils.constants import ALL_MODES, PROTO_VER  # type: ignore
 from robot_utils.mode_catalog import MODE_TRANSITION_TARGETS  # type: ignore
+from robot_contracts.feature_admission import feature_admission_payload, validate_feature_admission_registry  # type: ignore
 from robot_contracts.lane_registry import lane_registry_payload  # type: ignore
 from robot_contracts.signal_ownership import governance_signal_registry_payload  # type: ignore
+from robot_contracts.command_route_registry import command_route_registry_payload, validate_command_route_registry  # type: ignore
+from robot_contracts.command_interface_manifest import command_interface_manifest_payload, validate_command_interface_manifest  # type: ignore
+from robot_contracts.surface_registry import surface_registry_payload, validate_surface_registry  # type: ignore
+from robot_contracts.runtime_orchestration_registry import runtime_orchestration_registry_payload, validate_runtime_orchestration_registry  # type: ignore
+from robot_contracts.navigation_adapter_boundary_registry import navigation_adapter_boundary_registry_payload, validate_navigation_adapter_boundary_registry  # type: ignore
+from robot_contracts.release_gate_registry import release_gate_registry_payload, validate_release_gate_registry  # type: ignore
 
 FRONTEND_CONSTANTS = SOURCE_ROOT / 'robot_frontend' / 'src' / 'shared' / 'constants.ts'
 FRONTEND_TYPES = SOURCE_ROOT / 'robot_frontend' / 'src' / 'types' / 'robot.ts'
 FRONTEND_GENERATED_JSON = SOURCE_ROOT / 'robot_frontend' / 'src' / 'generated' / 'bridgeContract.json'
 FRONTEND_MODE_TRANSITIONS_JSON = SOURCE_ROOT / 'robot_frontend' / 'src' / 'generated' / 'modeTransitions.json'
 FRONTEND_GOVERNANCE_JSON = SOURCE_ROOT / 'robot_frontend' / 'src' / 'generated' / 'governanceContract.json'
-TCP_DOC = SOURCE_ROOT / 'docs' / '04_tcp_json_protocol.md'
-UART_DOC = SOURCE_ROOT / 'docs' / '05_uart_binary_protocol.md'
-STATE_MACHINE_DOC = SOURCE_ROOT / 'docs' / '06_state_machine.md'
+TCP_DOC = SOURCE_ROOT / 'docs' / 'protocols' / 'tcp-json.md'
+UART_DOC = SOURCE_ROOT / 'docs' / 'protocols' / 'uart-binary.md'
+STATE_MACHINE_DOC = SOURCE_ROOT / 'docs' / 'state-machine.md'
 STM32_PROTOCOL_HEADER = LAYOUT.canonical_stm_root / 'include' / 'protocol.h'
 
 def _extract_define_int(text: str, name: str) -> int | None:
@@ -137,6 +144,21 @@ def main() -> int:
     _assert('reset_fault' in state_machine_doc_text, 'state machine doc missing reset_fault recovery rule')
     _assert(frontend_governance.get('laneRegistry') == lane_registry_payload(include_experimental=True), 'frontend governance lane registry mismatch')
     _assert(frontend_governance.get('signalRegistry') == governance_signal_registry_payload(), 'frontend governance signal registry mismatch')
+    _assert(frontend_governance.get('featureAdmissionRegistry') == feature_admission_payload(), 'frontend governance feature admission registry mismatch')
+    _assert(validate_feature_admission_registry() == [], 'backend feature admission registry validation failed')
+    _assert(frontend_governance.get('commandRouteRegistry') == command_route_registry_payload(), 'frontend governance command route registry mismatch')
+    _assert(frontend_governance.get('commandInterfaceManifest') == command_interface_manifest_payload(), 'frontend governance command interface manifest mismatch')
+    _assert(frontend_governance.get('surfaceRegistry') == surface_registry_payload(), 'frontend governance surface registry mismatch')
+    _assert(frontend_governance.get('runtimeOrchestrationRegistry') == runtime_orchestration_registry_payload(), 'frontend governance runtime orchestration registry mismatch')
+    _assert(frontend_governance.get('navigationAdapterBoundaryRegistry') == navigation_adapter_boundary_registry_payload(), 'frontend governance navigation adapter boundary registry mismatch')
+    _assert(frontend_governance.get('releaseGateRegistry') == release_gate_registry_payload(), 'frontend governance release gate registry mismatch')
+    _assert(validate_feature_admission_registry() == [], 'backend feature admission registry validation failed')
+    _assert(validate_command_route_registry() == [], 'backend command route registry validation failed')
+    _assert(validate_command_interface_manifest() == [], 'backend command interface manifest validation failed')
+    _assert(validate_surface_registry() == [], 'backend surface registry validation failed')
+    _assert(validate_runtime_orchestration_registry() == [], 'backend runtime orchestration registry validation failed')
+    _assert(validate_navigation_adapter_boundary_registry() == [], 'backend navigation adapter boundary registry validation failed')
+    _assert(validate_release_gate_registry() == [], 'backend release gate registry validation failed')
     _assert('ROBOT_MSG_CMD_VEL' in stm32_header_text and '0x01' in uart_doc_text, 'UART frame type mapping missing CMD_VEL')
     _assert('ROBOT_MSG_CHASSIS' in stm32_header_text and '0x10' in uart_doc_text, 'UART frame type mapping missing CHASSIS')
 
@@ -174,6 +196,20 @@ def main() -> int:
         'frontend_mode_transitions_match_backend': frontend_mode_transitions.get('transitions') == {mode: list(targets) for mode, targets in MODE_TRANSITION_TARGETS.items()},
         'frontend_governance_lane_registry_match_backend': frontend_governance.get('laneRegistry') == lane_registry_payload(include_experimental=True),
         'frontend_governance_signal_registry_match_backend': frontend_governance.get('signalRegistry') == governance_signal_registry_payload(),
+        'frontend_governance_feature_admission_match_backend': frontend_governance.get('featureAdmissionRegistry') == feature_admission_payload(),
+        'feature_admission_validation_ok': validate_feature_admission_registry() == [],
+        'frontend_governance_command_route_registry_match_backend': frontend_governance.get('commandRouteRegistry') == command_route_registry_payload(),
+        'frontend_governance_command_interface_manifest_match_backend': frontend_governance.get('commandInterfaceManifest') == command_interface_manifest_payload(),
+        'command_interface_manifest_validation_ok': validate_command_interface_manifest() == [],
+        'frontend_governance_surface_registry_match_backend': frontend_governance.get('surfaceRegistry') == surface_registry_payload(),
+        'frontend_governance_runtime_orchestration_registry_match_backend': frontend_governance.get('runtimeOrchestrationRegistry') == runtime_orchestration_registry_payload(),
+        'frontend_governance_navigation_adapter_boundary_registry_match_backend': frontend_governance.get('navigationAdapterBoundaryRegistry') == navigation_adapter_boundary_registry_payload(),
+        'frontend_governance_release_gate_registry_match_backend': frontend_governance.get('releaseGateRegistry') == release_gate_registry_payload(),
+        'command_route_registry_validation_ok': validate_command_route_registry() == [],
+        'surface_registry_validation_ok': validate_surface_registry() == [],
+        'runtime_orchestration_registry_validation_ok': validate_runtime_orchestration_registry() == [],
+        'navigation_adapter_boundary_registry_validation_ok': validate_navigation_adapter_boundary_registry() == [],
+        'release_gate_registry_validation_ok': validate_release_gate_registry() == [],
     }
     for name in supported_profiles():
         profile = get_launch_profile(name)

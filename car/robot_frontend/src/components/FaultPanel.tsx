@@ -1,5 +1,6 @@
 import { robotBridge } from '@/bridge/client';
 import { commandButtonState } from '@/bridge/commandPolicy';
+import { FeatureMaturityPills } from '@/components/FeatureMaturityPills';
 import { SectionCard } from '@/components/SectionCard';
 import { StatusPill } from '@/components/StatusPill';
 import { formatDateTime } from '@/shared/utils';
@@ -17,7 +18,7 @@ export function FaultPanel() {
   const saveSnapshotState = commandButtonState('save_snapshot', { source: 'frontend' });
 
   return (
-    <SectionCard title="故障与保护" right={<StatusPill label={fault.level.toUpperCase()} tone={tone} />}>
+    <SectionCard title="故障与保护" right={<div className="toolbar-inline"><FeatureMaturityPills featureIds={['operator.safety_recovery', 'operator.snapshot_capture']} /><StatusPill label={fault.level.toUpperCase()} tone={tone} /></div>}>
       <div className="fault-box">
         <p><strong>故障码：</strong>{fault.code ?? '--'}</p>
         <p><strong>描述：</strong>{fault.message ?? '当前无故障。'}</p>

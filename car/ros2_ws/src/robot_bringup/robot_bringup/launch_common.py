@@ -14,8 +14,12 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, Pyth
 from launch_ros.actions import Node
 
 from robot_contracts.lane_registry import hardware_lane_entry, navigation_lane_entry
+from robot_navigation.provider_contract import navigation_provider_activation
+from robot_navigation.navigation_acceptance import nav2_external_backend_smoke_required, resolve_nav2_acceptance_artifact_paths
 from robot_bringup.config_resolution import CONFIG_PATH_INPUT_ENV, resolve_bringup_config
 from robot_bringup.launch_profiles import launch_argument_defaults
+from robot_hardware_interface.hardware_adapter import build_hardware_boundary_snapshot
+from robot_web_bridge.standard_observability_contract import resolve_standard_observability_bridge_contract
 from robot_bridge.runtime_factory import (
     DEFAULT_BRIDGE_RUNTIME_MODE,
     LEGACY_MONOLITH_RUNTIME_LABEL,
@@ -168,21 +172,48 @@ def _load_ros_parameters_file(path_value: str, *, root_key: str) -> dict[str, ob
 
 
 def _resolve_navigation_runtime_launch_spec(context) -> dict[str, str]:
-    """Resolve the navigation runtime package/executable/child factory.
+    """Resolve the effective navigation runtime launch specification.
 
-    The provider contract remains authoritative; launch-time selection only maps
-    that provider to the lane package declared in the lane registry.
+    Args:
+        context: Launch runtime context.
+
+    Returns:
+        Mapping describing the requested provider contract together with the
+        selected runtime lane after unsupported or unapproved experimental
+        providers are folded back to the stable mainline implementation.
+
+    Raises:
+        ValueError: If the configured provider name is unsupported.
     """
     navigation_config_path = _launch_arg_value(context, 'navigation_config_path')
     params = _load_ros_parameters_file(navigation_config_path, root_key='robot_navigation')
     provider_name = str(params.get('provider_name', 'simple_nav_provider') or 'simple_nav_provider').strip() or 'simple_nav_provider'
-    lane = navigation_lane_entry(provider_name)
+    allow_experimental = str(os.environ.get('ROBOT_ALLOW_EXPERIMENTAL_NAVIGATION_PROVIDER', '0') or '0').strip() == '1'
+    acceptance_artifact_paths = resolve_nav2_acceptance_artifact_paths(
+        params,
+        config_root=Path(navigation_config_path).resolve().parent if navigation_config_path else None,
+        runtime_dir=os.environ.get('INSPECTION_ROBOT_RUNTIME_DIR', '/tmp/inspection_robot'),
+    )
+    activation = navigation_provider_activation(
+        provider_name,
+        allow_experimental=allow_experimental,
+        acceptance_artifact_paths=acceptance_artifact_paths,
+        reference_config_path=str(Path(navigation_config_path).resolve().parent) if navigation_config_path else None,
+        require_external_backend_smoke=nav2_external_backend_smoke_required(params),
+    )
+    selected_runtime_provider = str(activation.get('selectedRuntimeProvider') or provider_name)
+    lane = navigation_lane_entry(selected_runtime_provider)
+    selected_boundary = activation.get('selectedGovernanceBoundary', {}) if isinstance(activation.get('selectedGovernanceBoundary', {}), dict) else {}
     return {
         'provider_name': provider_name,
-        'package': lane.package_name,
-        'executable': lane.executable,
+        'selected_runtime_provider': selected_runtime_provider,
+        'selected_runtime_reason': str(activation.get('selectedRuntimeReason') or ''),
+        'package': str(activation.get('selectedRuntimePackage') or selected_boundary.get('packageName') or lane.package_name),
+        'executable': str(activation.get('selectedRuntimeExecutable') or selected_boundary.get('executable') or lane.executable),
         'child_factory': lane.child_factory,
         'node_name': 'robot_navigation',
+        'adapter_boundary_role': str(selected_boundary.get('boundaryRole', 'mainline_provider') or 'mainline_provider'),
+        'adapter_runtime': _bool_arg(bool(selected_boundary.get('adapterRuntime', False))),
     }
 
 
@@ -190,26 +221,68 @@ def _resolve_navigation_runtime_launch_spec(context) -> dict[str, str]:
 def _resolve_hardware_runtime_launch_spec(context) -> dict[str, str]:
     """Resolve the hardware runtime lane selected by the hardware config.
 
-    Returns a dictionary describing the lane package and whether bridge runtime
-    remains responsible for board transport topics.
+    Returns a dictionary describing the effective lane package and whether the
+    bridge runtime remains responsible for board transport topics.
+
+    Raises:
+        ValueError: If a real-robot launch requests the direct-driver lane
+            without verified board-execution evidence.
     """
     hardware_config_path = _launch_arg_value(context, 'hardware_interface_config_path')
     params = _load_ros_parameters_file(hardware_config_path, root_key='robot_hardware_interface')
-    role = str(params.get('compatibility_surface_role', 'ros_projection_only') or 'ros_projection_only').strip() or 'ros_projection_only'
-    command_transport = str(params.get('command_transport', 'tcp_json_bridge') or 'tcp_json_bridge').strip() or 'tcp_json_bridge'
-    lane = hardware_lane_entry(role)
-    direct_driver_active = role == 'direct_driver' and command_transport == 'direct_driver_loop'
+    deployment_tier = 'host_harness' if _launch_arg_truthy(context, 'use_mock_robot', default=False) else 'real_robot'
+    verification_artifact_path = str(params.get('verification_artifact_path', '') or '').strip()
+    if verification_artifact_path and hardware_config_path and not Path(verification_artifact_path).is_absolute():
+        verification_artifact_path = str((Path(hardware_config_path).resolve().parent / verification_artifact_path).resolve())
+    snapshot = build_hardware_boundary_snapshot(
+        compatibility_surface_role=str(params.get('compatibility_surface_role', 'ros_projection_only') or 'ros_projection_only').strip() or 'ros_projection_only',
+        board_validation_in_repo=bool(params.get('board_validation_in_repo', False)),
+        board_execution_confirmed=bool(params.get('board_execution_confirmed', False)),
+        feedback_source=str(params.get('feedback_source', 'external_transport_or_mock') or 'external_transport_or_mock').strip() or 'external_transport_or_mock',
+        actuation_boundary=str(params.get('actuation_boundary', 'outside_ros_projection_node') or 'outside_ros_projection_node').strip() or 'outside_ros_projection_node',
+        transport_authority=str(params.get('transport_authority', 'external_board_controller') or 'external_board_controller').strip() or 'external_board_controller',
+        verification_stage=str(params.get('verification_stage', 'host_harness_only') or 'host_harness_only').strip() or 'host_harness_only',
+        command_transport=str(params.get('command_transport', 'tcp_json_bridge') or 'tcp_json_bridge').strip() or 'tcp_json_bridge',
+        verification_artifact_path=verification_artifact_path,
+        verification_reference_config_path=(Path(hardware_config_path).resolve().parent if hardware_config_path else None),
+        direct_driver_lane_policy=str(params.get('direct_driver_lane_policy', 'separate_package_required') or 'separate_package_required').strip() or 'separate_package_required',
+    )
+    boundary = snapshot.to_dict(deployment_tier=deployment_tier)
+    if str(boundary.get('activationDecision', 'activate') or 'activate') != 'activate':
+        raise ValueError(f"hardware lane rejected: {boundary.get('rejectionReason', 'unknown')}")
+    effective_role = str(boundary.get('effectiveCompatibilitySurfaceRole', boundary.get('compatibilitySurfaceRole', 'ros_projection_only')) or 'ros_projection_only')
+    direct_driver_active = effective_role in {'ros_soft_driver', 'verified_board_driver'} and str(boundary.get('effectiveCommandTransport', '') or '') == 'direct_driver_loop'
+    lane = hardware_lane_entry(effective_role)
     return {
-        'role': role,
-        'command_transport': command_transport,
-        'package': lane.package_name if direct_driver_active else hardware_lane_entry('ros_projection_only').package_name,
-        'executable': lane.executable if direct_driver_active else hardware_lane_entry('ros_projection_only').executable,
-        'child_factory': lane.child_factory if direct_driver_active else hardware_lane_entry('ros_projection_only').child_factory,
+        'role': effective_role,
+        'command_transport': str(boundary.get('effectiveCommandTransport', 'tcp_json_bridge') or 'tcp_json_bridge'),
+        'package': lane.package_name,
+        'executable': lane.executable,
+        'child_factory': lane.child_factory,
         'node_name': 'robot_direct_driver' if direct_driver_active else 'robot_hardware_interface',
         'bridge_runtime_active': _bool_arg(not direct_driver_active),
         'direct_driver_active': _bool_arg(direct_driver_active),
     }
 
+
+
+def _resolve_standard_observability_bridge_launch_spec(context) -> dict[str, str]:
+    """Resolve the optional standard read-only observability bridge wrapper."""
+    config_root = _launch_arg_value(context, 'config_root')
+    contract = resolve_standard_observability_bridge_contract(config_root)
+    command = [str(item) for item in contract.get('launchCommand', [])]
+    return {
+        'enabled': _bool_arg(bool(contract.get('enabled', False))),
+        'requested_enabled': _bool_arg(bool(contract.get('requestedEnabled', False))),
+        'runtime_launch_permitted': _bool_arg(bool(contract.get('runtimeLaunchPermitted', False))),
+        'family': str(contract.get('bridgeFamily', 'disabled') or 'disabled'),
+        'listen_host': str(contract.get('listenHost', '127.0.0.1') or '127.0.0.1'),
+        'port': str(int(contract.get('port', 8765) or 8765)),
+        'ws_path': str(contract.get('wsPath', '/observability') or '/observability'),
+        'command': ' '.join(command),
+        'policy_reason': str(contract.get('policyReason', 'not_applicable') or 'not_applicable'),
+        'upstream_url': str(contract.get('upstreamUrl', 'ws://127.0.0.1:9001/ws') or 'ws://127.0.0.1:9001/ws'),
+    }
 
 
 def _runtime_component_setup(context):
@@ -226,17 +299,30 @@ def _runtime_component_setup(context):
     """
     navigation_spec = _resolve_navigation_runtime_launch_spec(context)
     hardware_spec = _resolve_hardware_runtime_launch_spec(context)
+    standard_observability_spec = _resolve_standard_observability_bridge_launch_spec(context)
     return [
         SetLaunchConfiguration('navigation_runtime_package', navigation_spec['package']),
         SetLaunchConfiguration('navigation_runtime_executable', navigation_spec['executable']),
         SetLaunchConfiguration('navigation_runtime_child_factory', navigation_spec['child_factory']),
         SetLaunchConfiguration('navigation_runtime_node_name', navigation_spec['node_name']),
+        SetLaunchConfiguration('navigation_runtime_provider_name', navigation_spec['selected_runtime_provider']),
         SetLaunchConfiguration('hardware_runtime_package', hardware_spec['package']),
         SetLaunchConfiguration('hardware_runtime_executable', hardware_spec['executable']),
         SetLaunchConfiguration('hardware_runtime_child_factory', hardware_spec['child_factory']),
         SetLaunchConfiguration('hardware_runtime_node_name', hardware_spec['node_name']),
         SetLaunchConfiguration('bridge_runtime_active', hardware_spec['bridge_runtime_active']),
         SetLaunchConfiguration('direct_driver_active', hardware_spec['direct_driver_active']),
+        SetLaunchConfiguration('enable_standard_observability_bridge', standard_observability_spec['enabled']),
+        SetLaunchConfiguration('standard_observability_bridge_family', standard_observability_spec['family']),
+        SetLaunchConfiguration('standard_observability_bridge_listen_host', standard_observability_spec['listen_host']),
+        SetLaunchConfiguration('standard_observability_bridge_port', standard_observability_spec['port']),
+        SetLaunchConfiguration('standard_observability_bridge_ws_path', standard_observability_spec['ws_path']),
+        SetLaunchConfiguration('standard_observability_bridge_command', standard_observability_spec['command']),
+        SetLaunchConfiguration('standard_observability_bridge_upstream_url', standard_observability_spec['upstream_url']),
+        LogInfo(
+            msg=['robot_bringup standard observability bridge request downgraded to contract-only: ', standard_observability_spec['policy_reason']],
+            condition=IfCondition(PythonExpression([standard_observability_spec['requested_enabled'], ' and not ', standard_observability_spec['runtime_launch_permitted']])),
+        ),
     ]
 
 
@@ -313,12 +399,20 @@ def common_arguments(*, profile_name: str):
         DeclareLaunchArgument('navigation_runtime_executable', default_value='navigation_node'),
         DeclareLaunchArgument('navigation_runtime_child_factory', default_value='robot_navigation.navigation_node:RobotNavigationNode'),
         DeclareLaunchArgument('navigation_runtime_node_name', default_value='robot_navigation'),
+        DeclareLaunchArgument('navigation_runtime_provider_name', default_value='simple_nav_provider'),
         DeclareLaunchArgument('hardware_runtime_package', default_value='robot_hardware_interface'),
         DeclareLaunchArgument('hardware_runtime_executable', default_value='hardware_interface_node'),
         DeclareLaunchArgument('hardware_runtime_child_factory', default_value='robot_hardware_interface.hardware_interface_node:RobotHardwareInterfaceNode'),
         DeclareLaunchArgument('hardware_runtime_node_name', default_value='robot_hardware_interface'),
         DeclareLaunchArgument('bridge_runtime_active', default_value='true'),
         DeclareLaunchArgument('direct_driver_active', default_value='false'),
+        DeclareLaunchArgument('enable_standard_observability_bridge', default_value='false'),
+        DeclareLaunchArgument('standard_observability_bridge_upstream_url', default_value='ws://127.0.0.1:9001/ws'),
+        DeclareLaunchArgument('standard_observability_bridge_family', default_value='disabled'),
+        DeclareLaunchArgument('standard_observability_bridge_listen_host', default_value='127.0.0.1'),
+        DeclareLaunchArgument('standard_observability_bridge_port', default_value='8765'),
+        DeclareLaunchArgument('standard_observability_bridge_ws_path', default_value='/observability'),
+        DeclareLaunchArgument('standard_observability_bridge_command', default_value=''),
         DeclareLaunchArgument('simulator_config_path', default_value=config_root_default + '/simulator.yaml'),
         DeclareLaunchArgument('api_server_config_path', default_value=config_root_default + '/api_server.yaml'),
         DeclareLaunchArgument('lifecycle_manager_config_path', default_value=config_root_default + '/lifecycle_manager.yaml'),
@@ -438,11 +532,11 @@ def _resolve_control_barrier_requirements(context, *, include_monitor: bool, inc
 
 
 def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor: bool, include_teleop: bool, include_web_bridge: bool = True):
-    decision_params = [config_path('decision.yaml')]
+    decision_params = [config_path('decision.yaml'), {'mission_catalog_path': config_path('mission_catalog.yaml')}]
     control_params = [config_path('control.yaml')]
     localization_params = [LaunchConfiguration('localization_config_path'), {'description_path': LaunchConfiguration('description_path')}]
-    navigation_params = [LaunchConfiguration('navigation_config_path'), {'route_plan_path': LaunchConfiguration('waypoint_config_path')}]
-    hardware_interface_params = [LaunchConfiguration('hardware_interface_config_path'), {'description_path': LaunchConfiguration('description_path')}]
+    navigation_params = [LaunchConfiguration('navigation_config_path'), {'route_plan_path': LaunchConfiguration('waypoint_config_path'), 'provider_name': LaunchConfiguration('navigation_runtime_provider_name')}]
+    hardware_interface_params = [LaunchConfiguration('hardware_interface_config_path'), {'description_path': LaunchConfiguration('description_path'), 'hardware_interface_config_path': LaunchConfiguration('hardware_interface_config_path'), 'bridge_config_path': config_path('bridge.yaml'), 'host': LaunchConfiguration('bridge_host'), 'port': LaunchConfiguration('bridge_port')} ]
     bridge_params = [config_path('bridge.yaml'), {
         'host': LaunchConfiguration('bridge_host'),
         'port': LaunchConfiguration('bridge_port'),
@@ -499,6 +593,23 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
         condition=IfCondition(LaunchConfiguration('enable_api_server')),
     )
 
+    standard_observability_bridge_process = ExecuteProcess(
+        cmd=[
+            'python3', '-m', 'robot_web_bridge.standard_observability_bridge_launcher',
+            '--family', LaunchConfiguration('standard_observability_bridge_family'),
+            '--listen-host', LaunchConfiguration('standard_observability_bridge_listen_host'),
+            '--port', LaunchConfiguration('standard_observability_bridge_port'),
+            '--ws-path', LaunchConfiguration('standard_observability_bridge_ws_path'),
+            '--upstream-url', LaunchConfiguration('standard_observability_bridge_upstream_url'),
+            '--config-root', LaunchConfiguration('config_root'),
+        ],
+        output='screen',
+        shell=False,
+        name='robot_standard_observability_bridge',
+        additional_env={'PYTHONUNBUFFERED': '1'},
+        condition=IfCondition(LaunchConfiguration('enable_standard_observability_bridge')),
+    )
+
     phase0 = [
         _mock_robot_process(log_level),
         bridge_node,
@@ -508,10 +619,28 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
         bridge_health_node,
     ]
     lifecycle_manager_node = Node(package='robot_bringup', executable='ros_lifecycle_manager', name='robot_lifecycle_manager', parameters=[LaunchConfiguration('lifecycle_manager_config_path'), {'managed_nodes': ['robot_control_lifecycle', 'robot_navigation_lifecycle', 'robot_decision_lifecycle'], 'optional_managed_nodes': ['robot_navigation_lifecycle']}], arguments=['--ros-args', '--log-level', log_level], output='screen', condition=IfCondition(LaunchConfiguration('enable_ros_lifecycle_manager')))
+    runtime_orchestration_manager_node = Node(
+        package='robot_bringup',
+        executable='runtime_orchestration_manager',
+        name='robot_runtime_orchestration_manager',
+        parameters=[
+            {
+                'runtime_supervision_topic': '/robot/runtime/supervision',
+                'lifecycle_status_topic': '/robot/lifecycle_manager/status',
+                'decision_summary_topic': '/robot/decision/summary',
+                'web_bridge_ready_topic': '/robot/web_bridge/ready',
+                'orchestration_topic': '/robot/runtime/orchestration',
+                'orchestration_ready_topic': '/robot/runtime/orchestration/ready',
+            }
+        ],
+        arguments=['--ros-args', '--log-level', log_level],
+        output='screen',
+        condition=IfCondition(LaunchConfiguration('enable_monitor')),
+    )
 
     phase1 = [control_node, control_lifecycle_node, monitor_node, voice_node, vision_node, hardware_interface_node, localization_node, navigation_node, navigation_lifecycle_node, decision_node, decision_lifecycle_node]
-    phase2 = [lifecycle_manager_node]
-    phase3 = [teleop_node, web_bridge_node, api_server_process]
+    phase2 = [lifecycle_manager_node, runtime_orchestration_manager_node]
+    phase3 = [teleop_node, web_bridge_node, api_server_process, standard_observability_bridge_process]
 
     bridge_barrier_nodes: list[str] = []
     bridge_barrier_groups = [
@@ -522,6 +651,7 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
     bridge_barrier = _startup_barrier_action(label='bridge_phase', expected_nodes=bridge_barrier_nodes, expected_node_groups=bridge_barrier_groups)
 
     def _barrier_chain_setup(context):
+        bridge_runtime_active = _launch_arg_truthy(context, 'bridge_runtime_active', default=True)
         control_requirements = _resolve_control_barrier_requirements(context, include_monitor=include_monitor, include_voice=include_voice, include_vision=include_vision, include_navigation=True)
         control_barrier = _startup_barrier_action(
             label='control_phase',
@@ -536,6 +666,8 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
         decision_ready_topics = []
         if _launch_arg_truthy(context, 'enable_ros_lifecycle_manager', default=True):
             decision_ready_topics.append('/robot/lifecycle_manager/ready')
+        if include_monitor and _launch_arg_truthy(context, 'enable_monitor', default=True):
+            decision_ready_topics.append('/robot/runtime/orchestration/ready')
         decision_barrier = _startup_barrier_action(
             label='decision_phase',
             expected_nodes=decision_nodes,
@@ -561,19 +693,21 @@ def standard_nodes(*, include_voice: bool, include_vision: bool, include_monitor
                 failure_reason='operator readiness barrier failed',
             )
 
+        decision_chain = _chain_barrier(
+            barrier=decision_barrier,
+            on_success=[action for action in phase3 if action is not None] + operator_barrier_actions,
+            failure_reason='decision readiness barrier failed',
+        )
+        control_chain = _chain_barrier(
+            barrier=control_barrier,
+            on_success=[action for action in phase2 if action is not None] + decision_chain,
+            failure_reason='control readiness barrier failed',
+        )
+        if not bridge_runtime_active:
+            return [action for action in phase1 if action is not None] + control_chain
         return _chain_barrier(
             barrier=bridge_barrier,
-            on_success=[action for action in phase1 if action is not None]
-            + _chain_barrier(
-                barrier=control_barrier,
-                on_success=[action for action in phase2 if action is not None]
-                + _chain_barrier(
-                    barrier=decision_barrier,
-                    on_success=[action for action in phase3 if action is not None] + operator_barrier_actions,
-                    failure_reason='decision readiness barrier failed',
-                ),
-                failure_reason='control readiness barrier failed',
-            ),
+            on_success=[action for action in phase1 if action is not None] + control_chain,
             failure_reason='bridge readiness barrier failed',
         )
 

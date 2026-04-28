@@ -25,7 +25,7 @@ export const NAV_ITEMS: Array<{ path: string; label: string }> = [
   { path: '/patrol', label: '巡检任务' },
   { path: '/perception', label: '视觉语音' },
   { path: '/safety', label: '安全参数' },
-  { path: '/replay', label: '会话回放' },
+  { path: '/replay', label: '回放/证据' },
   { path: '/inspector', label: 'Bridge 检查器' },
   { path: '/reports', label: '运行报告' }
 ];
@@ -49,6 +49,7 @@ export const DEFAULT_WAYPOINTS: WaypointStatus[] = [
 ];
 
 export const WS_URL = import.meta.env.VITE_ROBOT_WS_URL ?? '';
+export const API_BASE_URL = import.meta.env.VITE_ROBOT_API_BASE_URL ?? '';
 export const MJPEG_URL = import.meta.env.VITE_ROBOT_MJPEG_URL ?? '';
 export const ENABLE_MOCK = (import.meta.env.VITE_ENABLE_MOCK ?? 'false') === 'true';
 export const DEMO_READONLY = (import.meta.env.VITE_READONLY_DEMO ?? 'false') === 'true';
@@ -56,6 +57,8 @@ export const BRIDGE_LABEL = import.meta.env.VITE_BRIDGE_LABEL ?? 'robot-bridge-l
 export const SESSION_ROLE = import.meta.env.VITE_ROBOT_SESSION_ROLE ?? '';
 export const SESSION_TOKEN = import.meta.env.VITE_ROBOT_SESSION_TOKEN ?? '';
 export const SESSION_ID = import.meta.env.VITE_ROBOT_SESSION_ID ?? '';
+export const WS_SURFACE_KIND = import.meta.env.VITE_ROBOT_WS_SURFACE_KIND ?? 'custom_unknown';
+export const WS_AUTHORITY = import.meta.env.VITE_ROBOT_WS_AUTHORITY ?? 'unknown';
 
 
 export const COMMAND_TIMEOUT_MS = 2500;
@@ -115,7 +118,7 @@ export const PANEL_LABELS: Record<PanelId, string> = {
   layout: '布局控制',
   patrol: '巡检任务',
   inspector: 'Bridge 检查器',
-  replay: '会话回放',
+  replay: '回放/证据',
   reports: '运行摘要'
 };
 

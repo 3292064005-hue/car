@@ -224,7 +224,29 @@ def _load_profile(profile_name: str = 'mock', config_path: str | None = None):
 
 
 
-def load_hardware_boundary_snapshot(config_root: Path) -> dict[str, Any]:
+
+
+def embedded_runtime_layout_payload() -> dict[str, Any]:
+    """Describe the physical separation between harness wrappers and board-runtime modules."""
+    return {
+        'separationMode': 'dedicated_modules_with_thin_wrappers',
+        'esp32': {
+            'wrapper': 'esp32s3_code/esp32_s3_gateway/src/app_main.c',
+            'hostHarnessModule': 'esp32s3_code/esp32_s3_gateway/src/host_harness_entry.c',
+            'boardBoundaryModule': 'esp32s3_code/esp32_s3_gateway/src/board_runtime_boundary.c',
+            'validationScope': 'hardware_in_loop_verified',
+            'boardRuntimeOwner': 'in_repo_esp32s3_board_runtime',
+        },
+        'stm32': {
+            'wrapper': 'stm32_code/stm32_f103_chassis/src/main.c',
+            'hostHarnessModule': 'stm32_code/stm32_f103_chassis/src/host_harness_entry.c',
+            'boardBoundaryModule': 'stm32_code/stm32_f103_chassis/src/board_runtime_boundary.c',
+            'validationScope': 'hardware_in_loop_verified',
+            'boardRuntimeOwner': 'in_repo_stm32_board_runtime',
+        },
+    }
+
+def load_hardware_boundary_snapshot(config_root: Path, *, deployment_tier: str = 'real_robot') -> dict[str, Any]:
     """Load the ROS-side hardware boundary contract from bringup config.
 
     Args:
@@ -272,7 +294,7 @@ def load_hardware_boundary_snapshot(config_root: Path) -> dict[str, Any]:
             verification_reference_config_path=config_root,
             direct_driver_lane_policy=normalized['directDriverLanePolicy'],
         )
-        boundary = snapshot.to_dict()
+        boundary = snapshot.to_dict(deployment_tier=deployment_tier)
     except ValueError as exc:
         compatibility_surface_role = normalized['compatibilitySurfaceRole']
         direct_driver_lane_policy = normalized['directDriverLanePolicy']
@@ -281,14 +303,16 @@ def load_hardware_boundary_snapshot(config_root: Path) -> dict[str, Any]:
             'verificationArtifactType': '',
             'executionEvidenceClass': 'rejected_configuration',
             'claimScope': 'configuration_rejected',
-            'driverIntegrationLane': 'dedicated_driver_lane' if compatibility_surface_role == 'direct_driver' else 'projection_only_mainline',
-            'directDriverMainlineAllowed': compatibility_surface_role == 'direct_driver' and direct_driver_lane_policy != 'separate_package_required',
+            'driverIntegrationLane': 'verified_board_driver_lane' if compatibility_surface_role == 'verified_board_driver' else ('soft_driver_compatibility_lane' if compatibility_surface_role == 'ros_soft_driver' else 'projection_only_mainline'),
+            'directDriverMainlineAllowed': compatibility_surface_role in {'ros_soft_driver', 'verified_board_driver'} and direct_driver_lane_policy != 'separate_package_required',
+            'verifiedBoardDriverMainlineAllowed': compatibility_surface_role == 'verified_board_driver' and direct_driver_lane_policy != 'separate_package_required',
             'activationDecision': 'reject',
             'validationStatus': 'rejected',
             'rejectionReason': str(exc),
         }
     boundary['configSource'] = str(source)
     boundary['configExists'] = source.is_file()
+    boundary['embeddedRuntimeLayout'] = embedded_runtime_layout_payload()
     return boundary
 
 
@@ -302,9 +326,12 @@ def runtime_signal_matrix_payload(profile_name: str = 'mock', *, config_path: st
         current profile and the authoritative capability/surface contracts.
     """
     from robot_bringup.matrix_contracts import profile_feature_matrix, surface_contract_for_profile
+    from robot_contracts.lane_registry import lane_registry_payload
+    from robot_contracts.signal_ownership import governance_signal_registry_payload, topic_signal_registry_payload
 
     profile = _load_profile(profile_name, config_path=config_path)
     config_root = resolve_config_root(config_path)
+    governance_topics = topic_signal_registry_payload()
     matrix: list[dict[str, Any]] = []
     mainline_runtime_gaps: list[str] = []
     for item in _SIGNAL_DEFINITIONS:
@@ -329,8 +356,11 @@ def runtime_signal_matrix_payload(profile_name: str = 'mock', *, config_path: st
             row['topic_lane'] = 'ui_projection_only'
         else:
             row['topic_lane'] = 'evidence_export_only'
+        governance_entry = governance_topics.get(str(row['topic']), {})
         row['surface_owner'] = _surface_owner_for_topic(str(row['topic']), str(row['topic_lane']))
         row['consumption_scope'] = _consumption_scope_for_row(row)
+        row['evidence_layer'] = str(governance_entry.get('evidenceLayer', 'human_summary'))
+        row['machine_evidence_allowed'] = bool(governance_entry.get('machineEvidenceAllowed', False))
         row['runtime_consumer_closure'] = (not row['required_for_mainline']) or bool(runtime_consumers)
         if row['required_for_mainline'] and not runtime_consumers:
             mainline_runtime_gaps.append(str(row['topic']))

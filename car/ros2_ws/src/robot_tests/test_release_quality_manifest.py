@@ -158,6 +158,9 @@ def test_release_quality_manifest_requires_target_environment_acceptance_for_rel
     assert payload['qualityScorecard']['bridgeIntegration'] is True
     assert payload['qualityScorecard']['operatorPathEndToEnd'] is True
     assert payload['runtimeSignalContract']['runtimeConsumerClosureCompleted'] is True
+    assert payload['runtimeSignalContract']['hardwareBoundary']['embeddedRuntimeLayout']['separationMode'] == 'dedicated_modules_with_thin_wrappers'
+    assert payload['verificationScope']['hardwareBoundary']['embeddedRuntimeLayout']['esp32']['hostHarnessModule'].endswith('host_harness_entry.c')
+    assert payload['verificationScope']['embeddedRuntimeLayout']['stm32']['boardBoundaryModule'].endswith('board_runtime_boundary.c')
     assert payload['releaseGateSatisfied'] is True
     assert payload['releaseDecision'] == 'target_environment_release_candidate'
     assert payload['blockingIssues'] == []

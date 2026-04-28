@@ -26,12 +26,85 @@ if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
 from robot_bringup.config_resolution import resolve_bringup_config
+from robot_contracts.capability_registry import capability_registry_payload
+from robot_contracts.lane_registry import hardware_lane_entry
+from robot_hardware_interface.hardware_contract import build_hardware_runtime_contract
 from robot_contracts.lane_registry import lane_registry_payload
 from robot_contracts.signal_ownership import governance_signal_registry_payload
 from robot_bringup.launch_profiles import get_launch_profile, launch_profile_resolution
 from robot_bringup.matrix_contracts import profile_feature_matrix, surface_contract_for_profile
 from robot_navigation.provider_contract import navigation_provider_activation
+from robot_web_bridge.standard_observability_contract import resolve_standard_observability_bridge_contract
+from robot_navigation.navigation_acceptance import nav2_external_backend_smoke_required, resolve_nav2_acceptance_artifact_paths
 from runtime_surface_inventory import load_hardware_boundary_snapshot
+from robot_decision.fleet_adapter_boundary import resolve_fleet_adapter_boundary_contract
+
+
+def _host_harness_projection_boundary(boundary: dict[str, object]) -> dict[str, object]:
+    """Return a projection-only hardware snapshot for host-harness profiles.
+
+    Args:
+        boundary: Resolved hardware-boundary payload.
+
+    Returns:
+        Boundary payload rewritten to the repository's projection-only compatibility lane.
+
+    Raises:
+        None.
+    """
+    projected = dict(boundary)
+    projected.update({
+        'compatibilitySurfaceRole': 'ros_projection_only',
+        'boardValidationInRepo': False,
+        'effectiveBoardValidationInRepo': False,
+        'boardExecutionConfirmed': False,
+        'effectiveBoardExecutionConfirmed': False,
+        'feedbackSource': 'external_transport_or_mock',
+        'actuationBoundary': 'outside_ros_projection_node',
+        'transportAuthority': 'external_board_controller',
+        'verificationStage': 'host_harness_only',
+        'effectiveVerificationStage': 'host_harness_only',
+        'commandTransport': 'tcp_json_bridge',
+        'effectiveCommandTransport': 'tcp_json_bridge',
+        'verificationArtifactPath': '',
+        'verificationArtifactType': '',
+        'executionEvidenceClass': 'host_harness_only',
+        'effectiveExecutionEvidenceClass': 'host_harness_only',
+        'claimScope': 'ros_projection_observability_only',
+        'effectiveClaimScope': 'ros_projection_observability_only',
+        'driverIntegrationLane': 'projection_only_mainline',
+        'directDriverLanePolicy': 'separate_package_required',
+        'directDriverMainlineAllowed': False,
+        'verifiedBoardDriverMainlineAllowed': False,
+        'activationDecision': 'activate',
+        'validationStatus': 'accepted',
+        'rejectionReason': '',
+        'governanceLane': hardware_lane_entry('ros_projection_only').to_dict(),
+    })
+    projected['runtimeContract'] = build_hardware_runtime_contract(role='ros_projection_only', boundary=projected)
+    return projected
+
+
+
+def _host_harness_requires_projection(boundary: dict[str, object]) -> bool:
+    """Return whether host-harness execution must stay on the projection lane.
+
+    Args:
+        boundary: Resolved hardware-boundary payload.
+
+    Returns:
+        ``True`` when the hardware lane is not a fully accepted direct-driver runtime.
+
+    Raises:
+        None.
+    """
+    return not (
+        str(boundary.get('compatibilitySurfaceRole', '') or '') == 'verified_board_driver'
+        and str(boundary.get('validationStatus', '') or '') == 'accepted'
+        and bool(boundary.get('boardExecutionConfirmed', False))
+        and str(boundary.get('verificationStage', '') or '') == 'hardware_in_loop_verified'
+        and str(boundary.get('commandTransport', '') or '') == 'direct_driver_loop'
+    )
 
 SURFACE_CHOICES = ('backend', 'web_bridge', 'frontend')
 _LOOPBACK_HOSTS = {'127.0.0.1', 'localhost'}
@@ -110,7 +183,19 @@ def _load_navigation_provider_contract(config_root: Path) -> dict[str, object]:
     config = payload.get('robot_navigation', payload) if isinstance(payload, dict) else {}
     ros_params = config.get('ros__parameters', {}) if isinstance(config, dict) and isinstance(config.get('ros__parameters', {}), dict) else {}
     provider_name = str(ros_params.get('provider_name', 'simple_nav_provider') or 'simple_nav_provider').strip() or 'simple_nav_provider'
-    return navigation_provider_activation(provider_name)
+    allow_experimental = str(os.environ.get('ROBOT_ALLOW_EXPERIMENTAL_NAVIGATION_PROVIDER', '0') or '0').strip() == '1'
+    acceptance_artifact_paths = resolve_nav2_acceptance_artifact_paths(
+        ros_params,
+        config_root=config_root,
+        runtime_dir=os.environ.get('INSPECTION_ROBOT_RUNTIME_DIR', '/tmp/inspection_robot'),
+    )
+    return navigation_provider_activation(
+        provider_name,
+        allow_experimental=allow_experimental,
+        acceptance_artifact_paths=acceptance_artifact_paths,
+        reference_config_path=str(config_root),
+        require_external_backend_smoke=nav2_external_backend_smoke_required(ros_params),
+    )
 
 def _operator_session_bootstrap_mode(*, surface: str, deployment_tier: str, api_public_host: str, websocket_public_host: str) -> str:
     """Return the operator-session bootstrap mode for the requested surface.
@@ -227,8 +312,10 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
     runtime = profile.runtime()
     deployment_tier = profile.deployment_tier()
     hardware_boundary_mode = profile.hardware_boundary_mode()
-    hardware_boundary = load_hardware_boundary_snapshot(resolved.config_root)
+    hardware_boundary = load_hardware_boundary_snapshot(resolved.config_root, deployment_tier=deployment_tier)
     navigation_provider = _load_navigation_provider_contract(resolved.config_root)
+    standard_observability_bridge = resolve_standard_observability_bridge_contract(resolved.config_root)
+    fleet_adapter_boundary = resolve_fleet_adapter_boundary_contract(resolved.config_root)
     capability_snapshot = profile_feature_matrix(profile, config_path=config_path)
     bridge_host = '127.0.0.1' if surface == 'frontend' else runtime.bridge.host
     websocket_public_host = profile.websocket_public_host or ('127.0.0.1' if surface == 'frontend' else runtime.bridge.host)
@@ -251,6 +338,15 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
     api_ws_url = f'ws://{api_public_host}:{api_port}{api_ws_path}'
     api_health_url = f'http://{api_probe_host}:{api_port}{api_prefix}/health'
     ws_url = api_ws_url if surface == 'frontend' and getattr(profile, 'enable_api_server', False) else bridge_ws_url
+    if surface == 'frontend' and getattr(profile, 'enable_api_server', False):
+        websocket_surface_kind = 'api_facade'
+        websocket_surface_authority = 'authoritative_operator'
+    elif ws_url == bridge_ws_url:
+        websocket_surface_kind = 'bridge_observer'
+        websocket_surface_authority = 'observer_only'
+    else:
+        websocket_surface_kind = 'custom_unknown'
+        websocket_surface_authority = 'unknown'
     mjpeg_url = runtime.bridge.mjpeg_url or ''
     operator_session_bootstrap_mode = _operator_session_bootstrap_mode(
         surface=surface,
@@ -296,6 +392,8 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
             'websocketUrl': ws_url,
             'bridgeWebsocketUrl': bridge_ws_url,
             'apiWebsocketUrl': api_ws_url,
+            'websocketSurfaceKind': websocket_surface_kind,
+            'websocketSurfaceAuthority': websocket_surface_authority,
             'websocketPublicHost': websocket_public_host,
             'websocketListenHost': websocket_listen_host,
             'websocketPort': websocket_port,
@@ -314,8 +412,11 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
             'hardwareBoundary': hardware_boundary,
             'capabilitySnapshot': capability_snapshot,
             'navigationProvider': navigation_provider,
-            'navigationRuntimePackage': navigation_provider.get('governanceLane', {}).get('packageName', ''),
-            'hardwareRuntimePackage': hardware_boundary.get('governanceLane', {}).get('packageName', ''),
+            'navigationRuntimePackage': navigation_provider.get('selectedRuntimePackage', navigation_provider.get('governanceLane', {}).get('packageName', '')),
+            'standardObservabilityBridgeContract': standard_observability_bridge,
+            'fleetAdapterBoundaryContract': fleet_adapter_boundary,
+            'hardwareRuntimePackage': hardware_boundary.get('selectedRuntimePackage') or hardware_boundary.get('governanceLane', {}).get('packageName', ''),
+            'capabilityRegistry': capability_registry_payload(),
             'laneRegistry': lane_registry_payload(include_experimental=True),
             'signalOwnershipRegistry': governance_signal_registry_payload(),
             'frontendSessionContractStage': frontend_session_contract_stage,
@@ -325,6 +426,8 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
         },
         'frontendEnv': {
             'VITE_ROBOT_WS_URL': ws_url,
+            'VITE_ROBOT_WS_SURFACE_KIND': websocket_surface_kind,
+            'VITE_ROBOT_WS_AUTHORITY': websocket_surface_authority,
             'VITE_ROBOT_BRIDGE_WS_URL': bridge_ws_url,
             'VITE_ROBOT_API_WS_URL': api_ws_url,
             'VITE_ROBOT_API_BASE_URL': f'http://{api_public_host}:{api_port}{api_prefix}',
@@ -345,6 +448,8 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
             'ROBOT_EFFECTIVE_BRIDGE_PORT': str(runtime.bridge.port),
             'ROBOT_EFFECTIVE_MJPEG_URL': mjpeg_url,
             'ROBOT_EFFECTIVE_WS_URL': ws_url,
+            'ROBOT_EFFECTIVE_WS_SURFACE_KIND': websocket_surface_kind,
+            'ROBOT_EFFECTIVE_WS_AUTHORITY': websocket_surface_authority,
             'ROBOT_EFFECTIVE_BRIDGE_WS_URL': bridge_ws_url,
             'ROBOT_EFFECTIVE_API_WS_URL': api_ws_url,
             'ROBOT_EFFECTIVE_API_BASE_URL': f'http://{api_public_host}:{api_port}{api_prefix}',
@@ -360,19 +465,24 @@ def build_payload(*, profile_name: str, surface: str, config_path: str | None, o
             'ROBOT_EFFECTIVE_API_SERVER_API_PREFIX': api_prefix,
             'ROBOT_EFFECTIVE_DEPLOYMENT_TIER': deployment_tier,
             'ROBOT_EFFECTIVE_HARDWARE_BOUNDARY_MODE': hardware_boundary_mode,
-            'ROBOT_EFFECTIVE_HARDWARE_SURFACE_ROLE': str(hardware_boundary['compatibilitySurfaceRole']),
-            'ROBOT_EFFECTIVE_BOARD_VALIDATION_IN_REPO': str(hardware_boundary['boardValidationInRepo']).lower(),
-            'ROBOT_EFFECTIVE_BOARD_EXECUTION_CONFIRMED': str(hardware_boundary['boardExecutionConfirmed']).lower(),
+            'ROBOT_EFFECTIVE_HARDWARE_SURFACE_ROLE': str(hardware_boundary.get('effectiveCompatibilitySurfaceRole', hardware_boundary['compatibilitySurfaceRole'])),
+            'ROBOT_REQUESTED_HARDWARE_SURFACE_ROLE': str(hardware_boundary['compatibilitySurfaceRole']),
+            'ROBOT_EFFECTIVE_BOARD_VALIDATION_IN_REPO': str(hardware_boundary.get('effectiveBoardValidationInRepo', hardware_boundary['boardValidationInRepo'])).lower(),
+            'ROBOT_EFFECTIVE_BOARD_EXECUTION_CONFIRMED': str(hardware_boundary.get('effectiveBoardExecutionConfirmed', hardware_boundary['boardExecutionConfirmed'])).lower(),
             'ROBOT_EFFECTIVE_HARDWARE_TRANSPORT_AUTHORITY': str(hardware_boundary['transportAuthority']),
-            'ROBOT_EFFECTIVE_HARDWARE_VERIFICATION_STAGE': str(hardware_boundary['verificationStage']),
-            'ROBOT_EFFECTIVE_HARDWARE_COMMAND_TRANSPORT': str(hardware_boundary['commandTransport']),
-            'ROBOT_EFFECTIVE_HARDWARE_EVIDENCE_CLASS': str(hardware_boundary['executionEvidenceClass']),
+            'ROBOT_EFFECTIVE_HARDWARE_VERIFICATION_STAGE': str(hardware_boundary.get('effectiveVerificationStage', hardware_boundary['verificationStage'])),
+            'ROBOT_EFFECTIVE_HARDWARE_COMMAND_TRANSPORT': str(hardware_boundary.get('effectiveCommandTransport', hardware_boundary['commandTransport'])),
+            'ROBOT_REQUESTED_HARDWARE_COMMAND_TRANSPORT': str(hardware_boundary['commandTransport']),
+            'ROBOT_EFFECTIVE_HARDWARE_EVIDENCE_CLASS': str(hardware_boundary.get('effectiveExecutionEvidenceClass', hardware_boundary['executionEvidenceClass'])),
             'ROBOT_EFFECTIVE_HARDWARE_ACTIVATION': str(hardware_boundary.get('activationDecision', 'activate')),
             'ROBOT_EFFECTIVE_HARDWARE_REJECTION_REASON': str(hardware_boundary.get('rejectionReason', '')),
             'ROBOT_EFFECTIVE_NAVIGATION_PROVIDER': str(navigation_provider['resolvedProvider']['providerName']),
             'ROBOT_EFFECTIVE_NAVIGATION_PROVIDER_PACKAGE': str(navigation_provider.get('governanceLane', {}).get('packageName', '')),
             'ROBOT_EFFECTIVE_NAVIGATION_PROVIDER_ACTIVATION': str(navigation_provider['activationDecision']),
-            'ROBOT_EFFECTIVE_HARDWARE_PACKAGE': str(hardware_boundary.get('governanceLane', {}).get('packageName', '')),
+            'ROBOT_EFFECTIVE_HARDWARE_PACKAGE': str(hardware_boundary.get('selectedRuntimePackage') or hardware_boundary.get('governanceLane', {}).get('packageName', '')),
+            'ROBOT_REQUESTED_HARDWARE_PACKAGE': str(hardware_boundary.get('requestedGovernanceLane', {}).get('packageName', '')),
+            'ROBOT_EFFECTIVE_HARDWARE_EXECUTABLE': str(hardware_boundary.get('selectedRuntimeExecutable', '')),
+            'ROBOT_EFFECTIVE_HARDWARE_CHILD_FACTORY': str(hardware_boundary.get('selectedRuntimeChildFactory', '')),
             'ROBOT_EFFECTIVE_OPERATOR_SESSION_BOOTSTRAP_MODE': operator_session_bootstrap_mode,
             'ROBOT_RUNTIME_SURFACE_CONTRACT_PATH': contract_path,
             'ROBOT_EFFECTIVE_FRONTEND_SESSION_ROLE': frontend_session['role'] if surface == 'frontend' else '',

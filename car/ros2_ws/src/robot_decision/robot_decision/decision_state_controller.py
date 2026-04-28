@@ -60,6 +60,11 @@ class DecisionStateController:
                 raise TypeError('runtime_supervision payload must be a dict')
             self.cache_runtime_supervision(payload)
             return None
+        if kind == 'runtime_orchestration':
+            if not isinstance(payload, dict):
+                raise TypeError('runtime_orchestration payload must be a dict')
+            self.cache_runtime_orchestration(payload)
+            return None
         if kind == 'chassis_state':
             self.cache_chassis_state(payload)
             return None
@@ -182,11 +187,10 @@ class DecisionStateController:
             context.navigation_last_update_at = str(payload.get('updatedAt', context.navigation_last_update_at) or '')
             context.current_step_name = context.navigation_goal_label or context.navigation_goal_id
             context.patrol_index = context.navigation_completed_goals
-            if context.navigation_total_goals > 0 and context.navigation_state == 'route_completed':
-                context.patrol_completed = True
+            if context.navigation_state == 'route_completed':
                 context.active_action_progress = 1.0
-                context.active_action_phase = 'completed'
-                context.active_action_message = 'patrol_complete'
+                context.active_action_phase = 'running'
+                context.active_action_message = context.navigation_reason or 'route_completed'
             elif self._node.current_mode == MODE_PATROL:
                 context.patrol_started = True
                 context.patrol_completed = False
@@ -197,8 +201,19 @@ class DecisionStateController:
 
         self._node._run_state_mutation('navigation_status', _mutation)
 
-    def cache_runtime_supervision(self, payload: dict[str, Any]) -> None:
-        """Cache runtime supervision state for audit and operator feedback."""
+    def cache_runtime_supervision(self, payload: dict[str, Any], *, orchestration_decision: Any | None = None) -> None:
+        """Cache runtime supervision and orchestration state for audit and control.
+
+        Args:
+            payload: Raw runtime-supervision payload.
+            orchestration_decision: Optional evaluated runtime-orchestration decision.
+
+        Returns:
+            None.
+
+        Raises:
+            None.
+        """
 
         def _mutation() -> None:
             context = self._node.context
@@ -207,8 +222,40 @@ class DecisionStateController:
             context.runtime_supervision_reasons = [str(item) for item in reasons] if isinstance(reasons, list) else list(context.runtime_supervision_reasons)
             components = payload.get('components', context.runtime_supervision_components)
             context.runtime_supervision_components = dict(components) if isinstance(components, dict) else dict(context.runtime_supervision_components)
+            if orchestration_decision is not None:
+                context.runtime_orchestration_state = str(getattr(orchestration_decision, 'orchestration_state', context.runtime_orchestration_state) or context.runtime_orchestration_state)
+                context.runtime_orchestration_reason = str(getattr(orchestration_decision, 'blocked_reason', context.runtime_orchestration_reason) or '')
+                orchestration_components = getattr(orchestration_decision, 'components', {})
+                context.runtime_orchestration_components = dict(orchestration_components) if isinstance(orchestration_components, dict) else dict(context.runtime_orchestration_components)
+                required_missing = getattr(orchestration_decision, 'required_missing', ())
+                context.runtime_orchestration_required_missing = [str(item) for item in required_missing]
 
         self._node._run_state_mutation('runtime_supervision', _mutation)
+
+    def cache_runtime_orchestration(self, payload: dict[str, Any]) -> None:
+        """Cache one system-level runtime orchestration payload.
+
+        Args:
+            payload: JSON-compatible orchestration payload emitted by the bringup
+                runtime orchestration manager.
+
+        Returns:
+            None.
+
+        Raises:
+            None.
+        """
+
+        def _mutation() -> None:
+            context = self._node.context
+            context.runtime_orchestration_state = str(payload.get('state', context.runtime_orchestration_state) or context.runtime_orchestration_state)
+            context.runtime_orchestration_reason = str(payload.get('reason', context.runtime_orchestration_reason) or '')
+            components = payload.get('components', context.runtime_orchestration_components)
+            context.runtime_orchestration_components = dict(components) if isinstance(components, dict) else dict(context.runtime_orchestration_components)
+            required_missing = payload.get('requiredMissing', context.runtime_orchestration_required_missing)
+            context.runtime_orchestration_required_missing = [str(item) for item in required_missing] if isinstance(required_missing, list) else list(context.runtime_orchestration_required_missing)
+
+        self._node._run_state_mutation('runtime_orchestration', _mutation)
 
     def cache_chassis_state(self, msg: Any) -> None:
         self._node._run_state_mutation('on_chassis_state', lambda: setattr(self._node, 'chassis_state', msg))

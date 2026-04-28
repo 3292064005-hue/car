@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from robot_bringup.matrix_contracts import load_bringup_matrices, profile_featur
 from robot_bringup.preflight import build_preflight_report
 from robot_bridge.runtime_factory import runtime_policy_snapshot
 from robot_navigation.provider_contract import navigation_provider_activation
+from robot_navigation.navigation_acceptance import resolve_nav2_acceptance_artifact_paths
 from runtime_surface_inventory import load_hardware_boundary_snapshot
 
 
@@ -40,7 +42,18 @@ def _load_navigation_provider_contract(config_dir: Path) -> dict[str, object]:
     config = payload.get('robot_navigation', payload) if isinstance(payload, dict) else {}
     ros_params = config.get('ros__parameters', {}) if isinstance(config, dict) and isinstance(config.get('ros__parameters', {}), dict) else {}
     provider_name = str(ros_params.get('provider_name', 'simple_nav_provider') or 'simple_nav_provider').strip() or 'simple_nav_provider'
-    return navigation_provider_activation(provider_name)
+    allow_experimental = str(os.environ.get('ROBOT_ALLOW_EXPERIMENTAL_NAVIGATION_PROVIDER', '0') or '0').strip() == '1'
+    acceptance_artifact_paths = resolve_nav2_acceptance_artifact_paths(
+        ros_params,
+        config_root=config_dir,
+        runtime_dir=os.environ.get('INSPECTION_ROBOT_RUNTIME_DIR', '/tmp/inspection_robot'),
+    )
+    return navigation_provider_activation(
+        provider_name,
+        allow_experimental=allow_experimental,
+        acceptance_artifact_paths=acceptance_artifact_paths,
+        reference_config_path=str(config_dir),
+    )
 
 def build_report(profile_name: str, *, config_path: str | None = None) -> dict[str, object]:
     profile = get_launch_profile(profile_name, config_path=config_path)

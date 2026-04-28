@@ -56,4 +56,4 @@ def test_hardware_profile_exposes_real_robot_boundary() -> None:
     profile = get_launch_profile('hardware')
     payload = profile.to_dict()
     assert payload['deployment_tier'] == 'real_robot'
-    assert payload['hardware_boundary_mode'] == 'ubuntu_runtime_plus_external_board'
+    assert payload['hardware_boundary_mode'] == 'ubuntu_runtime_plus_board_boundary_contract'

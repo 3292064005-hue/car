@@ -12,3 +12,10 @@ robot_monitor:
     diagnostics_enabled: true
     lifecycle_manager_status_topic: /robot/lifecycle_manager/status
     voice_ingress_health_topic: /robot/voice/ingress_health
+    system_replay_auto_export: true
+    system_replay_bundle_path: /tmp/inspection_robot/system_replay_bundle.json
+    system_replay_source_name: robot-monitor
+    system_replay_export_every_n: 1
+    system_replay_history_limit: 120
+    system_replay_log_limit: 256
+    system_replay_trace_limit: 128

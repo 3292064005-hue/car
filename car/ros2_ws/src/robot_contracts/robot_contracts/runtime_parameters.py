@@ -20,6 +20,78 @@ RUNTIME_PARAM_SCHEMA: dict[str, dict[str, Any]] = {
     'reconnectTimeoutMs': {'default': 1500, 'min': 250, 'max': 10_000, 'type': int},
 }
 
+
+VISION_RUNTIME_PARAM_SCHEMA: dict[str, dict[str, Any]] = {
+    'poll_period': {'default': 0.1, 'min': 0.01, 'max': 5.0, 'type': float},
+    'snapshot_async_queue_max': {'default': 16, 'min': 1, 'max': 512, 'type': int},
+    'snapshot_result_drain_max': {'default': 8, 'min': 1, 'max': 512, 'type': int},
+    'min_detection_confidence': {'default': 0.55, 'min': 0.0, 'max': 1.0, 'type': float},
+    'stable_detection_hits': {'default': 2, 'min': 1, 'max': 100, 'type': int},
+    'stable_detection_misses': {'default': 3, 'min': 1, 'max': 100, 'type': int},
+    'tracker_max_center_jump': {'default': 0.35, 'min': 0.0, 'max': 1.0, 'type': float},
+    'tracker_max_area_ratio_delta': {'default': 1.5, 'min': 0.0, 'max': 10.0, 'type': float},
+    'qrcode_cooldown_sec': {'default': 2.0, 'min': 0.0, 'max': 3600.0, 'type': float},
+    'color_detection_cooldown_sec': {'default': 1.0, 'min': 0.0, 'max': 3600.0, 'type': float},
+    'color_snapshot_min_interval_sec': {'default': 2.0, 'min': 0.0, 'max': 3600.0, 'type': float},
+    'stream_fault_after_misses': {'default': 10, 'min': 1, 'max': 10000, 'type': int},
+    'capture_reconnect_backoff_sec': {'default': 0.5, 'min': 0.0, 'max': 300.0, 'type': float},
+    'capture_reopen_after_misses': {'default': 5, 'min': 1, 'max': 10000, 'type': int},
+    'capture_ipc_queue_max': {'default': 1, 'min': 1, 'max': 1024, 'type': int},
+}
+
+
+def validate_vision_runtime_params(params: Mapping[str, Any]) -> list[str]:
+    """Validate VisionNode startup/runtime parameter boundaries.
+
+    Args:
+        params: Mapping of resolved ROS parameter names to values.
+
+    Returns:
+        Stable validation error strings. Empty means all declared values are in
+        schema range.
+
+    Raises:
+        None. Callers decide whether validation errors are hard-fail or warn.
+
+    Boundary behavior:
+        Booleans are rejected for numeric fields even though Python treats
+        ``bool`` as an ``int`` subclass; this prevents accidental YAML type
+        drift from passing silently.
+    """
+    errors: list[str] = []
+    for name, rule in VISION_RUNTIME_PARAM_SCHEMA.items():
+        if name not in params:
+            continue
+        value = params[name]
+        expected = rule['type']
+        if expected is int:
+            if isinstance(value, bool):
+                errors.append(f'{name}:expected_int')
+                continue
+            try:
+                coerced = int(value)
+            except (TypeError, ValueError):
+                errors.append(f'{name}:expected_int')
+                continue
+            if str(value).strip() != str(coerced) and isinstance(value, str):
+                errors.append(f'{name}:expected_int')
+                continue
+        else:
+            if isinstance(value, bool):
+                errors.append(f'{name}:expected_float')
+                continue
+            try:
+                coerced = float(value)
+            except (TypeError, ValueError):
+                errors.append(f'{name}:expected_float')
+                continue
+            if not math.isfinite(coerced):
+                errors.append(f'{name}:not_finite')
+                continue
+        if coerced < rule['min'] or coerced > rule['max']:
+            errors.append(f'{name}:out_of_range:{coerced}:allowed={rule["min"]}..{rule["max"]}')
+    return errors
+
 RUNTIME_PARAM_FIELD_CONTRACTS: dict[str, dict[str, Any]] = {
     'maxLinearSpeed': {
         'scope': RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,

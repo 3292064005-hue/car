@@ -1,37 +1,26 @@
 from __future__ import annotations
 
-"""Single source of truth for release-gate lanes and required markers.
-
-This module defines the named release-verification lanes, their human-readable
-purpose, and the workflow/doc markers that must stay aligned. Keeping these
-strings in one module reduces drift between shell orchestration, CI, README
-statements, and regression tests.
-"""
+"""Compatibility adapter exposing release-gate lanes derived from the registry."""
 
 from dataclasses import asdict, dataclass
 import json
-from pathlib import Path
 from typing import Any
+import sys
+from pathlib import Path
+
+ROOT_SRC = Path(__file__).resolve().parents[1] / 'ros2_ws' / 'src'
+for pkg in ROOT_SRC.iterdir():
+    if pkg.is_dir() and str(pkg) not in sys.path:
+        sys.path.insert(0, str(pkg))
+
+from robot_contracts.release_gate_registry import (
+    release_gate_registry_payload,
+    release_gate_workflow_required_strings,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class GateLane:
-    """One release-verification lane.
-
-    Args:
-        key: Stable internal lane identifier.
-        title: Human-readable step title used in CI/docs.
-        entrypoint: Canonical shell entrypoint for the lane.
-        required_markers: Strings that must exist in workflow/docs/tests.
-        risk_surface: Quality surface protected by the lane.
-
-    Returns:
-        Immutable lane descriptor.
-
-    Raises:
-        None.
-    """
-
     key: str
     title: str
     entrypoint: str
@@ -42,95 +31,43 @@ class GateLane:
 VERIFY_WORKFLOW_ENTRYPOINT = './scripts/run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke'
 
 
-LANES: tuple[GateLane, ...] = (
-    GateLane(
-        key='frontend',
-        title='Frontend E2E',
-        entrypoint='./scripts/run_release_verification.sh --with-frontend',
-        required_markers=(
-            'Install Playwright browsers (isolated workspace)',
-            'python3 scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium',
-            'Frontend E2E',
-            'python3 scripts/run_frontend_workspace_command.py -- npm run test:e2e:ci',
-            'Clean source tree gate (pre-frontend)',
-            'Clean source tree gate (post-frontend)',
-        ),
-        risk_surface='frontend_health',
-    ),
-    GateLane(
-        key='ros_smoke',
-        title='Mock system web bridge launch smoke',
-        entrypoint='./scripts/run_release_verification.sh --with-ros-smoke',
-        required_markers=(
-            'Mock system web bridge launch smoke',
-            '--launch-file mock_system.launch.py',
-            '--expected-node /robot_web_bridge',
-        ),
-        risk_surface='bridge_integration',
-    ),
-    GateLane(
-        key='integrated_frontend_bridge_smoke',
-        title='Integrated frontend + web bridge smoke',
-        entrypoint='./scripts/run_release_verification.sh --with-integrated-frontend-smoke --skip-npm-ci',
-        required_markers=(
-            'integrated_frontend_bridge_smoke:',
-            'Integrated frontend + web bridge smoke',
-            './scripts/run_release_verification.sh --with-integrated-frontend-smoke --skip-npm-ci',
-        ),
-        risk_surface='end_to_end_operator_path',
-    ),
-)
+def _lanes_from_registry() -> tuple[GateLane, ...]:
+    payload = release_gate_registry_payload()
+    lanes: list[GateLane] = []
+    for key, entry in payload.items():
+        if entry.get('stage') not in {'verification'}:
+            continue
+        lanes.append(
+            GateLane(
+                key=key,
+                title=str(entry['title']),
+                entrypoint=str(entry['entrypoint']),
+                required_markers=tuple(str(item) for item in entry.get('workflowMarkers', [])),
+                risk_surface=str(entry['riskSurface']),
+            )
+        )
+    return tuple(lanes)
+
+
+LANES: tuple[GateLane, ...] = _lanes_from_registry()
 
 
 def workflow_required_strings() -> tuple[str, ...]:
-    """Return all workflow markers that must remain present.
+    return release_gate_workflow_required_strings()
 
-    Args:
-        None.
-
-    Returns:
-        Flattened tuple of required workflow strings.
-
-    Raises:
-        None.
-    """
-    values: list[str] = [VERIFY_WORKFLOW_ENTRYPOINT]
-    for lane in LANES:
-        values.extend(lane.required_markers)
-    return tuple(values)
 
 
 def manifest_payload() -> dict[str, Any]:
-    """Build a serializable manifest snapshot.
-
-    Args:
-        None.
-
-    Returns:
-        Dictionary containing lane metadata and required workflow markers.
-
-    Raises:
-        None.
-    """
     return {
-        'schemaVersion': 1,
+        'schemaVersion': 2,
         'lanes': [asdict(item) for item in LANES],
         'workflowRequiredStrings': list(workflow_required_strings()),
+        'registryAuthority': 'robot_contracts.release_gate_registry',
     }
 
 
+
 def main() -> int:
-    """Print the manifest JSON for inspection/debugging.
-
-    Args:
-        None.
-
-    Returns:
-        Process exit code.
-
-    Raises:
-        None.
-    """
     print(json.dumps(manifest_payload(), ensure_ascii=False, indent=2))
     return 0
 

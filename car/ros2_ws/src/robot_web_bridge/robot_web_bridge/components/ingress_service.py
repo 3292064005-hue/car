@@ -9,6 +9,7 @@ from robot_contracts.bridge_contract import COMMAND_TYPES
 
 from robot_contracts.bridge_contract import validate_outbound_command_type
 from robot_utils.error_policy import classify_exception, publish_policy_outcome
+from robot_contracts.command_route_registry import command_route_denial_detail
 
 
 class IngressService:
@@ -113,9 +114,9 @@ class IngressService:
         self._record_phase(
             event_id,
             event_type or 'unknown',
-            'received',
+            'api_accepted',
             'queued',
-            'frontend command received',
+            'frontend command received by authoritative ingress',
             trace_id=trace_id,
         )
         command_check = validate_outbound_command_type(event_type)
@@ -124,12 +125,12 @@ class IngressService:
             self._record_phase(
                 event_id,
                 event_type or 'unknown',
-                'validated',
+                'failed',
                 'denied',
                 command_check.reason,
                 trace_id=trace_id,
             )
-            self._node.send_ack(event_id, 'denied', command_check.reason, trace_id=trace_id)
+            self._node.send_ack(event_id, 'denied', command_check.reason, trace_id=trace_id, detail='unsupported_command')
             return
         raw_payload = event.get('payload', {})
         if raw_payload is None:
@@ -142,12 +143,12 @@ class IngressService:
             self._record_phase(
                 event_id,
                 event_type or 'unknown',
-                'validated',
+                'failed',
                 'denied',
                 reason,
                 trace_id=trace_id,
             )
-            self._node.send_ack(event_id, 'denied', reason, trace_id=trace_id)
+            self._node.send_ack(event_id, 'denied', reason, trace_id=trace_id, detail='invalid_command_payload')
             publish_policy_outcome(
                 self._node,
                 outcome=classify_exception(
@@ -162,9 +163,10 @@ class IngressService:
         session_payload = dict(session_policy or {})
         if event_type in COMMAND_TYPES and not bool(session_payload.get('write_enabled', False)):
             reason = str(session_payload.get('reason', 'observer session is read-only; command writes are blocked by the authoritative session policy'))
+            detail = command_route_denial_detail(event_type, reason, source_surface='bridge_observer_surface', session_write_enabled=bool(session_payload.get('write_enabled', False))) or reason
             self._node.audit_command(event_id, event_type, 'denied', reason)
-            self._record_phase(event_id, event_type, 'validated', 'denied', reason, trace_id=trace_id, extra={'sessionRole': session_payload.get('role', 'observer'), 'sessionId': session_payload.get('session_id', '')})
-            self._node.send_ack(event_id, 'denied', reason, trace_id=trace_id)
+            self._record_phase(event_id, event_type, 'failed', 'denied', reason, trace_id=trace_id, extra={'sessionRole': session_payload.get('role', 'observer'), 'sessionId': session_payload.get('session_id', ''), 'detail': detail})
+            self._node.send_ack(event_id, 'denied', reason, trace_id=trace_id, detail=detail)
             return
         admission = self._node.dispatcher.enqueue(
             {
@@ -181,21 +183,23 @@ class IngressService:
         self._record_phase(
             event_id,
             event_type,
-            'admission',
-            admission.status,
+            'bridge_queued' if admission.accepted else 'failed',
+            'queued' if admission.accepted else admission.status,
             admission.message,
             trace_id=trace_id,
         )
-        if not admission.accepted:
-            self._node.audit_command(event_id, event_type, admission.status, admission.message)
-            self._node.send_ack(event_id, admission.status, admission.message, trace_id=trace_id)
+        if admission.accepted:
+            self._node.send_ack(event_id, 'queued', admission.message, trace_id=trace_id, lifecycle_status='queued')
+            return
+        self._node.audit_command(event_id, event_type, admission.status, admission.message)
+        self._node.send_ack(event_id, admission.status, admission.message, trace_id=trace_id, lifecycle_status=admission.status)
 
     def dispatch_command(self, cmd: dict[str, Any]) -> None:
         """Dispatch one admitted command into the router path."""
         self._node.record_command_phase(
             str(cmd.get('event_id', 'frontend-event') or 'frontend-event'),
             str(cmd.get('type', 'unknown') or 'unknown'),
-            'dispatching',
+            'handler_dispatched',
             'queued',
             'command dispatched to router',
             trace_id=str(cmd.get('trace_id', '') or ''),
@@ -207,7 +211,7 @@ class IngressService:
         self._node.record_command_phase(
             str(cmd.get('event_id', 'frontend-event') or 'frontend-event'),
             str(cmd.get('type', 'unknown') or 'unknown'),
-            'dispatch_failed',
+            'failed',
             'rejected',
             f'command dispatch failed: {exc}',
             trace_id=str(cmd.get('trace_id', '') or ''),

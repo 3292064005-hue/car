@@ -16,8 +16,10 @@ def test_embedded_host_build_script_runs() -> None:
     assert payload['esp32']['lines'] >= 1
     assert payload['stm32']['lines'] >= 1
     assert payload['embedded_mirror_validation']['status'] == 'ok'
-    assert payload['esp32']['sample'][0].startswith('gateway_config_source=')
-    assert payload['stm32']['sample'][0].startswith('harness_config ')
+    assert any(line.startswith('gateway boundary ') for line in payload['esp32']['sample'])
+    assert any(line.startswith('gateway_config_source=') for line in payload['esp32']['sample'])
+    assert any(line.startswith('chassis boundary ') for line in payload['stm32']['sample'])
+    assert any(line.startswith('harness_config ') for line in payload['stm32']['sample'])
     assert payload['esp32']['source_root'] == str(ROOT / 'esp32s3_code' / 'esp32_s3_gateway')
     assert payload['stm32']['source_root'] == str(ROOT / 'stm32_code' / 'stm32_f103_chassis')
 

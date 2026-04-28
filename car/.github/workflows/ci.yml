@@ -1,4 +1,4 @@
-name: ci
+name: CI
 
 on:
   push:
@@ -11,31 +11,20 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+      - name: Clean source tree gate (pre-frontend)
+        run: python3 scripts/package_source_release.py
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - name: Install ROS 2 Humble + colcon
-        run: ./scripts/setup_ci_ros_humble.sh
-      - name: Clean source tree gate (pre-frontend)
-        run: python3 scripts/package_source_release.py --output /tmp/source_release.zip --manifest /tmp/source_release_manifest.json
       - name: Install Playwright browsers (isolated workspace)
         run: python3 scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium
       - name: Frontend E2E
         run: python3 scripts/run_frontend_workspace_command.py -- npm run test:e2e:ci
       - name: Clean source tree gate (post-frontend)
-        run: python3 scripts/package_source_release.py --output /tmp/source_release_post_frontend.zip --manifest /tmp/source_release_post_frontend_manifest.json
-      - name: Unified release verification
-        shell: bash
-        run: |
-          source /opt/ros/humble/setup.bash
-          ./scripts/run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke
+        run: python3 scripts/package_source_release.py
       - name: Mock system web bridge launch smoke
-        shell: bash
-        run: |
-          source /opt/ros/humble/setup.bash
-          source ros2_ws/install/setup.bash
-          python3 scripts/run_live_ros_launch_smoke.py --launch-file mock_system.launch.py --expected-node /robot_web_bridge
+        run: ./scripts/run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke --launch-file mock_system.launch.py --expected-node /robot_web_bridge
 
   integrated_frontend_bridge_smoke:
     runs-on: ubuntu-22.04
@@ -43,23 +32,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install ROS 2 Humble + colcon
-        run: ./scripts/setup_ci_ros_humble.sh
-      - name: Clean source tree gate (pre-frontend)
-        run: python3 scripts/package_source_release.py --output /tmp/source_release.zip --manifest /tmp/source_release_manifest.json
-      - name: Install Playwright browsers (isolated workspace)
-        run: python3 scripts/run_frontend_workspace_command.py -- npm exec playwright install --with-deps chromium
+          python-version: '3.11'
       - name: Integrated frontend + web bridge smoke
-        shell: bash
-        run: |
-          source /opt/ros/humble/setup.bash
-          ./scripts/run_release_verification.sh --with-integrated-frontend-smoke --skip-npm-ci
-      - name: Clean source tree gate (post-frontend)
-        run: python3 scripts/package_source_release.py --output /tmp/source_release_post_frontend.zip --manifest /tmp/source_release_post_frontend_manifest.json
+        run: ./scripts/run_release_verification.sh --with-integrated-frontend-smoke --skip-npm-ci
 
   target_environment_acceptance:
     runs-on: ubuntu-22.04
@@ -67,37 +42,40 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-      - name: Install ROS 2 Humble + colcon
-        run: ./scripts/setup_ci_ros_humble.sh
+          python-version: '3.11'
       - name: Target environment acceptance capture
-        shell: bash
-        run: |
-          source /opt/ros/humble/setup.bash
-          ./scripts/run_target_environment_acceptance.sh --allow-incomplete --output /tmp/target_environment_acceptance.json
+        run: ./scripts/run_target_environment_acceptance.sh --allow-incomplete --output /tmp/target_environment_acceptance.json
 
-  python_checks:
+  governance_checks:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-      - name: Python static checks
-        run: python3 scripts/validate_configs.py
+          python-version: '3.11'
+      - name: Release gate consistency
+        run: python3 scripts/check_release_gate_consistency.py
+      - name: Contract consistency
+        run: python3 scripts/check_contract_consistency.py
+      - name: Report surface closure
+        run: python3 scripts/check_report_surface_closure.py
+      - name: Report kind enum closure
+        run: python3 scripts/check_report_kind_enum_closure.py
+      - name: Validation evidence binding
+        run: python3 scripts/check_validation_evidence_binding.py
+      - name: Feature admission registry
+        run: python3 scripts/check_feature_admission.py
+      - name: Command route registry
+        run: python3 scripts/check_command_route_registry.py
+      - name: Lane implementation alignment
+        run: python3 scripts/check_lane_implementation_alignment.py
 
-  frontend_metadata:
+  package_audit:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Frontend metadata check
-        run: python3 scripts/run_frontend_workspace_command.py -- npm run typecheck
+      - name: Source release package audit
+        run: python3 scripts/package_source_release.py --clean-transient-source-artifacts

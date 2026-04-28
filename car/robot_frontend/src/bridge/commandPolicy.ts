@@ -1,4 +1,5 @@
 import { createEnvelope } from '@/bridge/protocol';
+import { evaluateReadonlyBoundary, type CommandDecision, type CommandDecisionLevel, type CommandDecisionSource } from '@/bridge/policyKernel';
 import { canTransitionMode } from '@/machines/modeRules';
 import { summarizeInspectorRaw } from '@/shared/utils';
 import { useRobotStore } from '@/store/useRobotStore';
@@ -8,16 +9,6 @@ export interface PreparedCommand<TType extends CommandType = CommandType> {
   envelope: BridgeOutboundEvent;
   summary: string;
   type: TType;
-}
-
-export type CommandDecisionLevel = 'allow' | 'soft_warn' | 'hard_deny';
-export type CommandDecisionSource = 'normal' | 'readonly' | 'authoritative_permission' | 'local_guard';
-
-export interface CommandDecision {
-  level: CommandDecisionLevel;
-  reason: string;
-  source: CommandDecisionSource;
-  authoritative: boolean;
 }
 
 function priorityFor(type: CommandType): 'normal' | 'high' | 'critical' {
@@ -52,6 +43,17 @@ function authoritativePermissionLevel(type: CommandType): CommandDecisionLevel {
     default:
       return 'hard_deny';
   }
+}
+
+function readonlySessionDecision<TType extends CommandType>(type: TType): CommandDecision | null {
+  const { connection, ui } = useRobotStore.getState();
+  return evaluateReadonlyBoundary({
+    demoReadonly: ui.demoReadonly,
+    sessionWriteEnabled: connection.sessionWriteEnabled,
+    sessionAccessReason: connection.sessionAccessReason,
+    websocketSurfaceKind: connection.websocketSurfaceKind,
+    websocketSurfaceAuthority: connection.websocketSurfaceAuthority,
+  }, type);
 }
 
 function localGuardDecision<TType extends CommandType>(type: TType, payload: BridgeOutboundPayloadMap[TType]): CommandDecision {
@@ -109,20 +111,16 @@ function localGuardDecision<TType extends CommandType>(type: TType, payload: Bri
  * @param payload Command payload that may carry target mode or motion values.
  * @returns Decision with level/reason/source metadata for UI hints and send-time gating.
  * @throws Does not throw; all rejection paths are encoded in the returned decision.
- * @remarks Readonly state is treated as a hard deny for non-speech writes. Authoritative
+ * @remarks Readonly state is treated as a hard deny for all writes. Authoritative
  * permission snapshots override local guards when present; otherwise local guards only emit
  * soft guidance unless a mode transition is structurally invalid.
  */
 export function evaluateCommandDecision<TType extends CommandType>(type: TType, payload: BridgeOutboundPayloadMap[TType]): CommandDecision {
   const store = useRobotStore.getState();
 
-  if (store.ui.demoReadonly && type !== 'speak_fixed_text') {
-    return {
-      level: 'hard_deny',
-      reason: '当前启用了本地演示锁，浏览器侧已阻止写操作；最终权限仍以后端权威会话为准。',
-      source: 'readonly',
-      authoritative: false,
-    };
+  const readonlyDecision = readonlySessionDecision(type);
+  if (readonlyDecision) {
+    return readonlyDecision;
   }
 
   if (hasAuthoritativePermission(type)) {

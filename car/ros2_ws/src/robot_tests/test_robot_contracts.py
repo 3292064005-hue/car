@@ -1,4 +1,15 @@
-from robot_contracts.bridge_contract import BridgeEnvelope, CommandAck, contract_version_snapshot, resolve_compatibility_mode, validate_envelope_dict, validate_outbound_command_type, validate_transport_proto_version
+import pytest
+
+from robot_contracts.bridge_contract import (
+    BridgeEnvelope,
+    CommandAck,
+    EnvelopeValidationError,
+    contract_version_snapshot,
+    resolve_compatibility_mode,
+    validate_envelope_dict,
+    validate_outbound_command_type,
+    validate_transport_proto_version,
+)
 from robot_contracts.faults import fault_definition, normalize_fault_level, normalize_log_level, recommended_action
 from robot_contracts.launch_contract import resolve_runtime
 
@@ -16,7 +27,36 @@ def test_bridge_envelope_serialization():
 
 def test_command_ack_payload():
     payload = CommandAck(command_id='cmd-1', status='ack', lifecycle_status='completed', message='done', detail='ok').to_payload()
-    assert payload == {'commandId': 'cmd-1', 'status': 'ack', 'lifecycleStatus': 'completed', 'message': 'done', 'detail': 'ok'}
+    assert payload == {
+        'commandId': 'cmd-1',
+        'status': 'ack',
+        'message': 'done',
+        'lifecycleStatus': 'completed',
+        'lifecyclePhase': 'business_completed',
+        'detail': 'ok',
+    }
+
+
+def test_command_ack_accepts_explicit_lifecycle_phase():
+    payload = CommandAck(
+        command_id='cmd-2',
+        status='ack',
+        lifecycle_status='applied',
+        lifecycle_phase='ros_accepted',
+        message='applied',
+    ).to_payload()
+    assert payload['lifecyclePhase'] == 'ros_accepted'
+
+
+def test_command_ack_rejects_invalid_lifecycle_phase():
+    with pytest.raises(EnvelopeValidationError):
+        CommandAck(
+            command_id='cmd-3',
+            status='ack',
+            lifecycle_status='applied',
+            lifecycle_phase='legacy_done',
+            message='bad',
+        ).to_payload()
 
 
 def test_fault_and_log_level_normalization():
@@ -71,7 +111,6 @@ def test_contract_versions_and_transport_versions():
     assert validate_transport_proto_version(2, transport='tcp') is False
 
 
-
 def test_command_ack_includes_trace_id_when_present():
     from robot_web_bridge.envelope import EnvelopeFactory
 
@@ -85,4 +124,5 @@ def test_command_ack_includes_trace_id_when_present():
 def test_contract_versions_expose_command_lifecycle_statuses():
     snapshot = contract_version_snapshot()
     assert 'completed' in snapshot['command_lifecycle_statuses']
+    assert 'business_completed' in snapshot['command_lifecycle_phases']
     assert 'command-lifecycle-v2' in snapshot['capabilities']

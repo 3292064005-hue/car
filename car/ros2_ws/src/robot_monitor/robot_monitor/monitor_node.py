@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import math
+import os
+from pathlib import Path
 from typing import Any
 
 import rclpy
@@ -27,6 +29,7 @@ from robot_contracts.runtime_param_transport import (
 from robot_utils.qos_profiles import qos_for
 from robot_utils.callback_groups import build_callback_groups, call_with_callback_group
 from robot_utils.error_policy import classify_exception, publish_policy_outcome
+from robot_utils.system_replay_bundle import SystemReplayAutoCapture, build_runtime_session_metadata
 
 
 class MonitorNode(Node):
@@ -51,6 +54,13 @@ class MonitorNode(Node):
         self.declare_parameter('runtime_supervision_history_limit', 32)
         self.declare_parameter('lifecycle_manager_status_topic', '/robot/lifecycle_manager/status')
         self.declare_parameter('voice_ingress_health_topic', '/robot/voice/ingress_health')
+        self.declare_parameter('system_replay_auto_export', True)
+        self.declare_parameter('system_replay_bundle_path', '/tmp/inspection_robot/system_replay_bundle.json')
+        self.declare_parameter('system_replay_source_name', 'robot-monitor')
+        self.declare_parameter('system_replay_export_every_n', 1)
+        self.declare_parameter('system_replay_history_limit', 120)
+        self.declare_parameter('system_replay_log_limit', 256)
+        self.declare_parameter('system_replay_trace_limit', 128)
         self.callback_groups = build_callback_groups()
         self.snapshot = StatusSnapshot()
         self.metrics = Metrics()
@@ -73,6 +83,18 @@ class MonitorNode(Node):
         self._last_metrics_flush_ns = 0
         self._last_health: str | None = None
         self._runtime_low_power_threshold = 25.0
+        self._runtime_battery_percent = 0.0
+        self._system_replay_auto_export = bool(self.get_parameter('system_replay_auto_export').value)
+        self._system_replay_bundle_path = str(self.get_parameter('system_replay_bundle_path').value)
+        self._system_replay_source_name = str(self.get_parameter('system_replay_source_name').value or 'robot-monitor')
+        self._system_replay_export_every_n = max(1, int(self.get_parameter('system_replay_export_every_n').value))
+        self._system_replay_export_tick = 0
+        self._runtime_param_state: dict[str, Any] = {'lowPowerThreshold': self._runtime_low_power_threshold}
+        self._system_replay = SystemReplayAutoCapture(
+            history_limit=int(self.get_parameter('system_replay_history_limit').value),
+            log_limit=int(self.get_parameter('system_replay_log_limit').value),
+            trace_limit=int(self.get_parameter('system_replay_trace_limit').value),
+        )
         self._runtime_startup_ready = False
         self._component_last_seen: dict[str, float] = {}
         self._lifecycle_manager_status: dict[str, Any] | None = None
@@ -124,6 +146,90 @@ class MonitorNode(Node):
 
         self.timer = call_with_callback_group(self.create_timer, float(self.get_parameter('summary_period').value), self.publish_summary, callback_group=self.callback_groups.background)
         self.get_logger().info(f'robot_monitor started (diagnostics={diagnostic_transport_type() if diagnostics_enabled else "disabled"})')
+
+    @staticmethod
+    def _runtime_env_value(key: str, default: str) -> str:
+        value = str(os.environ.get(key, '') or '').strip()
+        return value or default
+
+    def _system_replay_session_metadata(self) -> dict[str, str]:
+        profile_name = MonitorNode._runtime_env_value('ROBOT_EFFECTIVE_PROFILE', 'unknown')
+        provider_name = MonitorNode._runtime_env_value('ROBOT_EFFECTIVE_NAVIGATION_PROVIDER', 'simple_nav_provider')
+        hardware_role = MonitorNode._runtime_env_value('ROBOT_EFFECTIVE_HARDWARE_SURFACE_ROLE', 'ros_projection_only')
+        evidence_class = MonitorNode._runtime_env_value('ROBOT_EFFECTIVE_HARDWARE_EVIDENCE_CLASS', 'host_harness_only')
+        session_id = MonitorNode._runtime_env_value('ROBOT_EFFECTIVE_FRONTEND_SESSION_ID', f'{profile_name}-monitor-runtime')
+        return build_runtime_session_metadata(
+            session_id=session_id,
+            profile_name=profile_name,
+            provider_name=provider_name,
+            hardware_role=hardware_role,
+            evidence_class=evidence_class,
+        )
+
+    def _system_replay_params_payload(self) -> dict[str, Any]:
+        state = getattr(self, '_runtime_param_state', None)
+        return dict(state) if isinstance(state, dict) else {'lowPowerThreshold': float(getattr(self, '_runtime_low_power_threshold', 25.0))}
+
+    def _system_replay_topics_payload(self) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for name, topic in self._component_topics.items():
+            last_seen = self._component_last_seen.get(name)
+            rows.append({
+                'component': name,
+                'topic': topic,
+                'lastSeenAt': self._timestamp_to_iso(last_seen),
+                'healthy': last_seen is not None,
+            })
+        return rows
+
+    def _system_replay_recorder(self) -> SystemReplayAutoCapture | None:
+        recorder = getattr(self, '_system_replay', None)
+        return recorder if isinstance(recorder, SystemReplayAutoCapture) else None
+
+    def _safe_system_replay_call(self, method_name: str, *args: Any, **kwargs: Any) -> None:
+        recorder = MonitorNode._system_replay_recorder(self)
+        if recorder is None:
+            return
+        method = getattr(recorder, method_name, None)
+        if method is None:
+            return
+        try:
+            method(*args, **kwargs)
+        except Exception as exc:
+            self._log_runtime_io_error(f'system replay {method_name}', exc)
+
+    def _append_system_replay_summary_sample(self) -> None:
+        MonitorNode._safe_system_replay_call(self, 
+            'append_history_sample',
+            latency_ms=getattr(self.snapshot, 'average_rtt_ms', 0.0),
+            battery_percent=getattr(self, '_runtime_battery_percent', 0.0),
+            left_wheel=getattr(self.snapshot, 'left_rpm', 0.0),
+            right_wheel=getattr(self.snapshot, 'right_rpm', 0.0),
+            frame_drops=getattr(self.snapshot, 'frame_drop_count', 0.0),
+            ack_latency_ms=getattr(self.snapshot, 'average_rtt_ms', 0.0),
+        )
+
+    def _export_system_replay_bundle(self, *, force: bool = False) -> None:
+        if not bool(getattr(self, '_system_replay_auto_export', False)):
+            return
+        self._system_replay_export_tick += 1
+        if not force and self._system_replay_export_tick % self._system_replay_export_every_n != 0:
+            return
+        try:
+            recorder = MonitorNode._system_replay_recorder(self)
+            if recorder is None:
+                return
+            for record in self._system_replay_topics_payload():
+                MonitorNode._safe_system_replay_call(self, 'record_topic', record)
+            recorder.export_bundle(
+                self._system_replay_bundle_path,
+                source_name=self._system_replay_source_name,
+                session_metadata=self._system_replay_session_metadata(),
+                params=self._system_replay_params_payload(),
+            )
+            self._safe_evidence_update(system_replay_bundle_path=self._system_replay_bundle_path)
+        except Exception as exc:
+            self._log_runtime_io_error('system replay export', exc)
 
     @staticmethod
     def _timestamp_to_iso(ts_sec: float | None) -> str | None:
@@ -232,6 +338,10 @@ class MonitorNode(Node):
         self.snapshot.battery_low_stop = bool(getattr(msg, 'low_power_stop', False))
         battery_percent = getattr(msg, 'battery_percent', None)
         try:
+            self._runtime_battery_percent = float(battery_percent if battery_percent is not None else 0.0)
+        except (TypeError, ValueError):
+            self._runtime_battery_percent = 0.0
+        try:
             threshold_warn = battery_percent is not None and float(battery_percent) <= float(self._runtime_low_power_threshold)
         except (TypeError, ValueError):
             threshold_warn = False
@@ -326,7 +436,25 @@ class MonitorNode(Node):
                 ))
             return
         self._runtime_low_power_threshold = threshold
+        if not isinstance(getattr(self, '_runtime_param_state', None), dict):
+            self._runtime_param_state = {}
+        self._runtime_param_state['lowPowerThreshold'] = threshold
         self.snapshot.readiness, self.snapshot.readiness_reason = derive_readiness(self.snapshot)
+        MonitorNode._safe_system_replay_call(self, 'record_trace', {
+            'scope': 'runtime_params',
+            'consumer': 'robot_monitor',
+            'transactionId': transaction_id,
+            'traceId': trace_id,
+            'runtimeParamVersion': version,
+        })
+        MonitorNode._safe_system_replay_call(self, 'record_service_action_event', {
+            'kind': 'runtime_param_apply_result',
+            'consumer': 'robot_monitor',
+            'transactionId': transaction_id,
+            'traceId': trace_id,
+            'runtimeParamVersion': version,
+            'ok': True,
+        })
         if transaction_id:
             MonitorNode._publish_runtime_param_apply_result(self, build_runtime_param_apply_result(
                 consumer='robot_monitor',
@@ -436,6 +564,15 @@ class MonitorNode(Node):
             'stamp_nanosec': msg.stamp.nanosec,
         }
         self._safe_logger_append(record)
+        MonitorNode._safe_system_replay_call(self, 'record_log', {
+            'id': f'{msg.category}:{msg.name}:{msg.stamp.sec}.{msg.stamp.nanosec}',
+            'timestamp': self._timestamp_to_iso(float(msg.stamp.sec) + float(msg.stamp.nanosec) / 1e9),
+            'level': msg.level,
+            'domain': msg.category,
+            'message': msg.name,
+            'details': msg.detail,
+            'source': msg.source,
+        })
         self._safe_evidence_record_event(msg.category, msg.name, msg.detail)
 
     def _runtime_supervision_payload(self) -> dict[str, Any]:
@@ -609,6 +746,7 @@ class MonitorNode(Node):
             'recoveryPlan': recovery_plan,
             'ts': self._timestamp_to_iso(now_sec),
         }
+        MonitorNode._safe_system_replay_call(self, 'record_inspector_trace', payload)
         self._safe_evidence_update(runtime_supervision=payload)
         return payload
 
@@ -666,6 +804,10 @@ class MonitorNode(Node):
 
     def destroy_node(self) -> bool:
         try:
+            self._export_system_replay_bundle(force=True)
+        except Exception:
+            pass
+        try:
             self.logger_jsonl.flush()
         except Exception:
             pass
@@ -690,6 +832,8 @@ class MonitorNode(Node):
             self.logger_jsonl.flush()
         except Exception:
             pass
+        self._append_system_replay_summary_sample()
+        self._export_system_replay_bundle()
         self._maybe_flush_metrics(health=health)
         if self.diagnostics_pub is not None:
             arr = DiagnosticArray()

@@ -1,3 +1,4 @@
+import { FeatureMaturityPills } from '@/components/FeatureMaturityPills';
 import { KeyValueGrid } from '@/components/KeyValueGrid';
 import { SectionCard } from '@/components/SectionCard';
 import { formatTimestamp } from '@/shared/utils';
@@ -7,7 +8,7 @@ export function VisionPanel() {
   const vision = useRobotStore((state) => state.vision);
 
   return (
-    <SectionCard title="视觉结果">
+    <SectionCard title="视觉结果" right={<FeatureMaturityPills featureIds={['operator.snapshot_capture']} />}>
       <KeyValueGrid
         items={[
           { label: '目标类型', value: vision.targetType ?? '--' },

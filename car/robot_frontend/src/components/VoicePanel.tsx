@@ -1,4 +1,6 @@
 import { robotBridge } from '@/bridge/client';
+import { commandButtonState } from '@/bridge/commandPolicy';
+import { FeatureMaturityPills } from '@/components/FeatureMaturityPills';
 import { KeyValueGrid } from '@/components/KeyValueGrid';
 import { SectionCard } from '@/components/SectionCard';
 import { StatusPill } from '@/components/StatusPill';
@@ -7,9 +9,11 @@ import { useRobotStore } from '@/store/useRobotStore';
 
 export function VoicePanel() {
   const voice = useRobotStore((state) => state.voice);
+  const normalSpeakState = commandButtonState('speak_fixed_text', { text: '系统状态正常', source: 'frontend' });
+  const alertSpeakState = commandButtonState('speak_fixed_text', { text: '检测到异常，请注意', source: 'frontend' });
 
   return (
-    <SectionCard title="语音状态" right={<StatusPill label={voice.speaking ? '播报中' : '空闲'} tone={voice.speaking ? 'warning' : 'success'} />}>
+    <SectionCard title="语音状态" right={<div className="toolbar-inline"><FeatureMaturityPills featureIds={['operator.voice_fixed_text']} /><StatusPill label={voice.speaking ? '播报中' : '空闲'} tone={voice.speaking ? 'warning' : 'success'} /></div>}>
       <KeyValueGrid
         items={[
           { label: '最近命令', value: voice.lastVoiceCommand ?? '--', emphasis: Boolean(voice.lastVoiceCommand) },
@@ -20,10 +24,10 @@ export function VoicePanel() {
         ]}
       />
       <div className="inline-actions">
-        <button className="ghost-btn" onClick={() => robotBridge.send('speak_fixed_text', { text: '系统状态正常', source: 'frontend' }, '播报状态正常')}>
+        <button className="ghost-btn" title={normalSpeakState.reason} disabled={normalSpeakState.disabled} onClick={() => robotBridge.send('speak_fixed_text', { text: '系统状态正常', source: 'frontend' }, '播报状态正常')}>
           播报状态正常
         </button>
-        <button className="ghost-btn" onClick={() => robotBridge.send('speak_fixed_text', { text: '检测到异常，请注意', source: 'frontend' }, '播报异常提醒')}>
+        <button className="ghost-btn" title={alertSpeakState.reason} disabled={alertSpeakState.disabled} onClick={() => robotBridge.send('speak_fixed_text', { text: '检测到异常，请注意', source: 'frontend' }, '播报异常提醒')}>
           播报异常提醒
         </button>
       </div>

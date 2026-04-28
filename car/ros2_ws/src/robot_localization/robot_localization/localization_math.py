@@ -77,3 +77,23 @@ def yaw_to_quaternion(yaw: float) -> tuple[float, float, float, float]:
     """
     half = yaw * 0.5
     return (0.0, 0.0, math.sin(half), math.cos(half))
+
+def quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
+    """Convert one quaternion into planar yaw.
+
+    Args:
+        x: Quaternion x component.
+        y: Quaternion y component.
+        z: Quaternion z component.
+        w: Quaternion w component.
+
+    Returns:
+        Heading in radians normalized to ``[-pi, pi]``.
+
+    Raises:
+        None.
+    """
+    siny_cosp = 2.0 * (w * z + x * y)
+    cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
+    return normalize_angle(math.atan2(siny_cosp, cosy_cosp))
+

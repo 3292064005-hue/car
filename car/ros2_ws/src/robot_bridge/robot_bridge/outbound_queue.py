@@ -4,6 +4,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+from .payload_types import CMD_VEL, ESTOP, FAULT_CLEAR, RESUME_FROM_SAFE_STOP, SET_MODE, SPEAK, START_PATROL, STOP_NOW, TRACK_TARGET
+
 
 _PRIORITY_RANK = {
     'normal': 0,
@@ -37,9 +39,9 @@ class OutboundQueue:
     """
 
     max_size: int = 64
-    replaceable_types: tuple[str, ...] = ('cmd_vel', 'set_mode')
-    high_priority_types: tuple[str, ...] = ('teleop_cmd', 'speak', 'start_patrol', 'track_target')
-    critical_types: tuple[str, ...] = ('estop', 'stop_now', 'resume_from_safe_stop', 'set_mode', 'fault_clear')
+    replaceable_types: tuple[str, ...] = (CMD_VEL, SET_MODE)
+    high_priority_types: tuple[str, ...] = (CMD_VEL, SPEAK, START_PATROL, TRACK_TARGET)
+    critical_types: tuple[str, ...] = (ESTOP, STOP_NOW, RESUME_FROM_SAFE_STOP, SET_MODE, FAULT_CLEAR)
     critical_reserve_slots: int = 1
     _items: deque[dict[str, Any]] = field(default_factory=deque)
     dropped_count: int = 0

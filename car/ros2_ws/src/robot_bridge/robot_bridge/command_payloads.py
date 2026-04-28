@@ -6,6 +6,8 @@ from robot_utils.constants import PROTO_VER
 from robot_utils.legacy_compat_audit import record_motion_input_alias_hit
 from robot_utils.helpers import get_float, get_int, safe_json_dumps, unix_time
 
+from .payload_types import CMD_VEL, SET_MODE, SPEAK
+
 
 CANONICAL_MOTION_FIELDS = ('vx', 'wz')
 LEGACY_MOTION_FIELDS = ('linear', 'angular')
@@ -16,7 +18,7 @@ def build_cmd_vel_payload(*, seq: int, vx: float, wz: float, mode: str, timestam
     vx = round(float(vx), 4)
     wz = round(float(wz), 4)
     return {
-        'type': 'cmd_vel',
+        'type': CMD_VEL,
         'proto_ver': PROTO_VER,
         'seq': int(seq),
         'timestamp': float(ts),
@@ -29,7 +31,7 @@ def build_cmd_vel_payload(*, seq: int, vx: float, wz: float, mode: str, timestam
 def build_mode_payload(*, seq: int, mode: str, requested_by: str, reason: str, timestamp: float | None = None) -> dict[str, Any]:
     ts = unix_time() if timestamp is None else timestamp
     return {
-        'type': 'set_mode',
+        'type': SET_MODE,
         'proto_ver': PROTO_VER,
         'seq': int(seq),
         'timestamp': float(ts),
@@ -42,7 +44,7 @@ def build_mode_payload(*, seq: int, mode: str, requested_by: str, reason: str, t
 def build_speak_payload(*, seq: int, text_id: str, priority: int, requested_by: str, timestamp: float | None = None) -> dict[str, Any]:
     ts = unix_time() if timestamp is None else timestamp
     return {
-        'type': 'speak',
+        'type': SPEAK,
         'proto_ver': PROTO_VER,
         'seq': int(seq),
         'timestamp': float(ts),
@@ -90,4 +92,4 @@ def normalize_motion_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def payload_summary(payload: dict[str, Any]) -> str:
-    return safe_json_dumps(normalize_motion_payload(payload) if payload.get('type') == 'cmd_vel' else payload)
+    return safe_json_dumps(normalize_motion_payload(payload) if payload.get('type') == CMD_VEL else payload)

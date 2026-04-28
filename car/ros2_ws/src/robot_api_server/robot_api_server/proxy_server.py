@@ -12,6 +12,10 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from robot_contracts.bridge_contract import COMMAND_TYPES
 from robot_contracts.command_policy import SessionPolicy, resolve_session_policy
+from robot_contracts.command_route_registry import command_route_denial_detail
+from robot_contracts.product_interface_contract import product_interface_contract
+from robot_contracts.surface_registry import surface_registry_entry
+from robot_decision.mission_catalog import mission_catalog_payload
 
 
 @dataclass
@@ -61,6 +65,7 @@ class RobotApiProxyServer:
         upstream_session_token: str = '',
         internal_command_socket_path: str = '/tmp/inspection_robot/bridge_internal_command.sock',
         internal_command_auth_token: str = '',
+        config_root: str = '',
     ) -> None:
         self.upstream_url = upstream_url
         self.listen_host = listen_host
@@ -75,6 +80,7 @@ class RobotApiProxyServer:
         self.upstream_session_token = str(upstream_session_token or '').strip()
         self.internal_command_socket_path = str(internal_command_socket_path or '/tmp/inspection_robot/bridge_internal_command.sock').strip() or '/tmp/inspection_robot/bridge_internal_command.sock'
         self.internal_command_auth_token = str(internal_command_auth_token or '').strip()
+        self.config_root = str(config_root or '').strip()
         self._internal_command_registered = False
         self._internal_command_lease_epoch: int | None = None
         self.mirror = UpstreamMirror()
@@ -86,6 +92,8 @@ class RobotApiProxyServer:
             web.get(f'{self.api_prefix}/state', self.handle_state),
             web.get(f'{self.api_prefix}/runtime', self.handle_runtime),
             web.get(f'{self.api_prefix}/logs', self.handle_logs),
+            web.get(f'{self.api_prefix}/product-interface', self.handle_product_interface),
+            web.get(f'{self.api_prefix}/missions', self.handle_missions),
             web.post(f'{self.api_prefix}/commands', self.handle_command),
             web.get(self.ws_path, self.handle_ws),
         ])
@@ -180,14 +188,28 @@ class RobotApiProxyServer:
                 'status': 'denied',
                 'lifecycleStatus': 'denied',
                 'message': 'command rejected by authoritative API session policy',
-                'detail': policy.reason,
+                'detail': command_route_denial_detail(command_type, policy.reason, source_surface='frontend_api_facade', session_write_enabled=policy.write_enabled) or policy.reason,
                 'sessionRole': policy.role,
                 'sessionId': policy.session_id,
             },
         }
 
+    @staticmethod
+    def _surface_overlay(surface_id: str) -> dict[str, Any]:
+        entry = surface_registry_entry(surface_id)
+        if entry is None:
+            return {}
+        return {
+            'surfaceId': entry.surface_id,
+            'surfaceLayers': list(entry.surface_layers),
+            'surfaceAuthorityModel': entry.authority_model,
+            'surfaceWriteEnabled': bool(entry.write_enabled),
+            'surfaceMachineGateAllowed': bool(entry.machine_gate_allowed),
+        }
+
     def _overlay_command_permissions(self, connection: dict[str, Any], policy: SessionPolicy) -> dict[str, Any]:
         payload = dict(connection or {})
+        payload.update(self._surface_overlay('frontend_api_facade'))
         if policy.write_enabled:
             payload.setdefault('sessionRole', policy.role)
             payload.setdefault('sessionRequestedRole', policy.requested_role)
@@ -384,6 +406,29 @@ class RobotApiProxyServer:
                 return dict(reports)
         return {}
 
+    def _product_interface_payload(self) -> dict[str, Any]:
+        """Return the formal product-facing interface contract.
+
+        Returns:
+            Serializable product interface contract consumed by API clients and
+            frontend artifact generation.
+
+        Raises:
+            None. Contract generation is deterministic for the configured root.
+        """
+        return product_interface_contract(api_prefix=self.api_prefix, config_root=self.config_root or None)
+
+    def _missions_payload(self) -> dict[str, Any]:
+        """Return the exported single-robot mission catalog.
+
+        Returns:
+            Serializable mission catalog payload exposed as a stable product API.
+
+        Raises:
+            None. Missing config falls back to the repository default catalog.
+        """
+        return mission_catalog_payload(self.config_root or None)
+
     def _health_payload(self, policy: SessionPolicy | None = None) -> dict[str, Any]:
         effective_policy = policy or self._resolve_policy()
         connection = self._overlay_command_permissions(dict(self.mirror.latest_connection or {}), effective_policy)
@@ -391,8 +436,9 @@ class RobotApiProxyServer:
         gateway_ready_reasons = list(connection.get('gatewayReadyReasons') or connection.get('operatorReadyReasons') or ([] if gateway_ready else ['gateway_not_ready']))
         runtime_health_state = str(connection.get('runtimeHealthState') or ('ready' if self.mirror.connected else 'unavailable'))
         runtime_health_reasons = list(connection.get('runtimeHealthReasons') or ([] if self.mirror.connected else ['api_upstream_disconnected']))
-        operator_surface_ready = bool(self.mirror.connected and gateway_ready)
-        operator_surface_ready_reasons = list(connection.get('operatorSurfaceReadyReasons') or ([] if operator_surface_ready else (gateway_ready_reasons or ['operator_surface_not_ready'])))
+        declared_operator_surface_ready = bool(connection.get('operatorSurfaceReady', connection.get('operatorReady', False)))
+        operator_surface_ready = bool(self.mirror.connected and declared_operator_surface_ready)
+        operator_surface_ready_reasons = list(connection.get('operatorSurfaceReadyReasons') or ([] if operator_surface_ready else ['operator_surface_not_ready']))
         service_ok = bool(self.mirror.connected)
         return {
             'ok': service_ok,
@@ -443,6 +489,8 @@ class RobotApiProxyServer:
             'externalCommandEntry': 'robot_api_server',
             'upstreamBridgeRole': 'robot_web_bridge',
             'operatorSurfaceContract': self._health_payload(policy),
+            'productInterfaceContract': self._product_interface_payload(),
+            'missionCatalog': self._missions_payload(),
             'accessPolicy': {
                 'defaultRole': self.default_role,
                 'requireOperatorToken': self.require_operator_token,
@@ -451,6 +499,14 @@ class RobotApiProxyServer:
                 'effectiveReason': policy.reason,
             },
         })
+
+    async def handle_product_interface(self, request: web.Request) -> web.Response:
+        del request
+        return web.json_response(self._product_interface_payload())
+
+    async def handle_missions(self, request: web.Request) -> web.Response:
+        del request
+        return web.json_response(self._missions_payload())
 
     async def handle_logs(self, request: web.Request) -> web.Response:
         policy = self._request_policy(request)
@@ -477,7 +533,7 @@ class RobotApiProxyServer:
         log_record = {'source': 'http', 'payload': payload, 'sessionRole': policy.role, 'sessionId': policy.session_id}
         self.mirror.command_log.append(log_record)
         if command_type in COMMAND_TYPES and not policy.write_enabled:
-            return web.json_response({'ok': False, 'message': policy.reason, 'sessionRole': policy.role, 'sessionId': policy.session_id}, status=403)
+            return web.json_response({'ok': False, 'message': policy.reason, 'detail': command_route_denial_detail(command_type, policy.reason, source_surface='frontend_api_facade', session_write_enabled=policy.write_enabled) or policy.reason, 'sessionRole': policy.role, 'sessionId': policy.session_id}, status=403)
         dispatch = await self._dispatch_internal_command(payload)
         if not bool(dispatch.get('ok', False)):
             return web.json_response({'ok': False, 'message': str(dispatch.get('message', 'internal command dispatch failed')), 'sessionRole': policy.role, 'sessionId': policy.session_id}, status=503)
@@ -510,7 +566,8 @@ class RobotApiProxyServer:
                     continue
                 dispatch = await self._dispatch_internal_command(payload)
                 if not bool(dispatch.get('ok', False)):
-                    await ws.send_str(json.dumps({'type': 'command_ack', 'payload': {'status': 'rejected', 'detail': str(dispatch.get('message', 'internal command dispatch failed'))}}, ensure_ascii=False))
+                    detail = command_route_denial_detail(command_type, str(dispatch.get('message', 'internal command dispatch failed')), source_surface='frontend_api_facade') or str(dispatch.get('message', 'internal command dispatch failed'))
+                    await ws.send_str(json.dumps({'type': 'command_ack', 'payload': {'status': 'rejected', 'detail': detail}}, ensure_ascii=False))
         finally:
             self._local_clients.pop(ws, None)
         return ws

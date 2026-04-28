@@ -5,6 +5,7 @@ from typing import Iterable
 _CANONICAL_BRIDGE_CAPABILITIES = (
     'command-ack',
     'offline-session-replay',
+    'system-replay-bundle',
     'layout-presets',
     'reports-export',
     'protocol-versioning',
@@ -39,6 +40,26 @@ COMMAND_LIFECYCLE_STATUSES = (
     'timeout',
     'cancelled',
 )
+COMMAND_LIFECYCLE_PHASES = (
+    'client_sent',
+    'api_accepted',
+    'bridge_queued',
+    'handler_dispatched',
+    'ros_accepted',
+    'business_completed',
+    'failed',
+    'timed_out',
+)
+COMMAND_LIFECYCLE_PHASE_BY_STATUS = {
+    'queued': 'bridge_queued',
+    'accepted': 'ros_accepted',
+    'applied': 'ros_accepted',
+    'completed': 'business_completed',
+    'rejected': 'failed',
+    'denied': 'failed',
+    'timeout': 'timed_out',
+    'cancelled': 'failed',
+}
 COMMAND_ACK_STATUSES = ('queued', 'ack', 'rejected', 'denied', 'timeout', 'cancelled')
 TERMINAL_COMMAND_ACK_STATUSES = ('ack', 'rejected', 'denied', 'timeout', 'cancelled')
 TERMINAL_COMMAND_LIFECYCLE_STATUSES = ('applied', 'completed', 'rejected', 'denied', 'timeout', 'cancelled')
@@ -143,3 +164,11 @@ def supported_capabilities(extra: Iterable[str] | None = None, *, include_deprec
             if alias not in merged:
                 merged.append(alias)
     return merged
+
+
+def command_lifecycle_phase_for_status(lifecycle_status: str) -> str:
+    """Map precise lifecycle status onto an operator-visible phase."""
+    normalized = str(lifecycle_status or '').strip()
+    if normalized not in COMMAND_LIFECYCLE_PHASE_BY_STATUS:
+        raise ValueError(f'unsupported lifecycle status for phase mapping: {lifecycle_status!r}')
+    return COMMAND_LIFECYCLE_PHASE_BY_STATUS[normalized]

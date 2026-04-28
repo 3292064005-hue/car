@@ -12,6 +12,8 @@ from typing import Any
 
 from std_msgs.msg import String
 
+from robot_contracts.runtime_orchestration_registry import runtime_orchestration_runtime_status
+
 
 class ObservabilityProjector:
     """Project report-only ROS telemetry into the websocket observability model."""
@@ -384,20 +386,29 @@ class ObservabilityProjector:
                 lifecycle_manager = parsed.get('lifecycleManager', {}) if isinstance(parsed.get('lifecycleManager', {}), dict) else {}
                 bond_supervision = parsed.get('bondSupervision', {}) if isinstance(parsed.get('bondSupervision', {}), dict) else {}
                 recovery_plan = parsed.get('recoveryPlan', {}) if isinstance(parsed.get('recoveryPlan', {}), dict) else {}
+                orchestration_status = runtime_orchestration_runtime_status(parsed)
+                missing_required = [component_id for component_id, item in orchestration_status.items() if item.get('requiredForMainline') and item.get('missingFields')]
+                effective_reasons = list(reasons)
+                if missing_required:
+                    effective_reasons.extend(f'missing_orchestration_fields:{component_id}' for component_id in missing_required)
+                effective_state = state
+                if missing_required and effective_state == 'ready':
+                    effective_state = 'degraded'
                 entry.update({
                     'kind': 'runtime_supervision',
                     'mainlineImpact': 'runtime_governance',
-                    'severity': 'error' if state in {'faulted', 'unavailable'} else 'warn' if state == 'degraded' else 'success' if state == 'ready' else 'info',
-                    'summary': f'runtime {state}',
-                    'status': state,
+                    'severity': 'error' if effective_state in {'faulted', 'unavailable'} else 'warn' if effective_state == 'degraded' else 'success' if effective_state == 'ready' else 'info',
+                    'summary': f'runtime {effective_state}',
+                    'status': effective_state,
                     'details': {
-                        'reasons': reasons,
+                        'reasons': effective_reasons,
                         'startupBarrierReady': bool(parsed.get('startupBarrierReady', False)),
                         'readiness': parsed.get('readiness'),
                         'recoveryMode': parsed.get('recoveryMode'),
                         'lifecycleManager': lifecycle_manager,
                         'bondSupervision': bond_supervision,
                         'recoveryPlan': recovery_plan,
+                        'orchestrationComponents': orchestration_status,
                     },
                 })
             else:
@@ -415,6 +426,7 @@ class ObservabilityProjector:
                         'lifecycleManager': {},
                         'bondSupervision': {},
                         'recoveryPlan': {'strategy': None, 'reason': 'report_parse_error', 'targetNodes': []},
+                        'orchestrationComponents': runtime_orchestration_runtime_status({}),
                     },
                 })
             return entry

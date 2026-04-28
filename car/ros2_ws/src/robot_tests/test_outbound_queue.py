@@ -29,7 +29,7 @@ def test_outbound_queue_rejects_new_normal_payload_when_only_reserved_critical_c
 
 def test_outbound_queue_allows_newest_critical_payload_to_preempt_older_high_priority_payload() -> None:
     q = OutboundQueue(max_size=2)
-    q.enqueue({'type': 'teleop_cmd', 'seq': 1})
+    q.enqueue({'type': 'cmd_vel', 'seq': 1})
     q.enqueue({'type': 'speak', 'seq': 2})
     q.enqueue({'type': 'estop', 'seq': 3})
     assert len(q) == 2
@@ -38,4 +38,4 @@ def test_outbound_queue_allows_newest_critical_payload_to_preempt_older_high_pri
     assert items[1]['type'] in {'speak', 'estop'}
     assert {item['type'] for item in items} == {'speak', 'estop'}
     assert q.dropped_count == 1
-    assert q.summary()['dropped_by_type']['teleop_cmd'] == 1
+    assert q.summary()['dropped_by_type']['cmd_vel'] == 1

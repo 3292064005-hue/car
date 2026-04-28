@@ -10,6 +10,7 @@ from robot_bringup.config_resolution import resolve_bringup_config
 from robot_bringup.environment_checks import build_environment_report, environment_check_entries, startup_gate_entries
 from robot_bringup.launch_profiles import get_launch_profile, launch_profile_resolution
 from robot_bridge.runtime_factory import runtime_policy_snapshot
+from robot_hardware_interface.standardization_target import hardware_standardization_target
 from robot_utils.config_loader import ConfigValidationError, load_structured_file
 from robot_utils.parameter_schema import validate_ros_params
 
@@ -107,6 +108,25 @@ def _runtime_paths(config_dir: Path) -> dict[str, str]:
 
 
 
+def _check_ros2_control_standardization_artifacts(*, repo_root: Path, role: str) -> list[PreflightCheck]:
+    target = hardware_standardization_target(role)
+    artifact_paths = target.get('artifactPaths', {}) if isinstance(target.get('artifactPaths', {}), dict) else {}
+    checks: list[PreflightCheck] = []
+    for key, rel in artifact_paths.items():
+        rel_path = str(rel or '').strip()
+        path = repo_root / rel_path if rel_path else repo_root
+        exists = bool(rel_path) and path.is_file()
+        checks.append(PreflightCheck(
+            name=f'ros2_control_artifact:{key}',
+            ok=exists,
+            detail=str(path),
+            blocking=True,
+            severity='fatal' if not exists else 'info',
+            phase='standardization',
+        ))
+    return checks
+
+
 def _hardware_boundary(profile_name: str, *, deployment_tier: str, hardware_boundary_mode: str, use_mock_robot: bool) -> dict[str, Any]:
     """Describe the explicit Ubuntu/runtime vs board-level validation boundary.
 
@@ -130,7 +150,7 @@ def _hardware_boundary(profile_name: str, *, deployment_tier: str, hardware_boun
         'board_validation_performed_by_preflight': False,
         'board_validation_scope': 'ubuntu_side_preflight_validates_launch_readiness_only',
         'embedded_host_harness_script': str((_canonical_repo_root() / 'scripts' / 'check_embedded_host_builds.py').resolve()),
-        'operator_note': 'ESP32-S3 and STM32 board-level firmware validation remains outside Ubuntu-side preflight.',
+        'operator_note': 'Ubuntu preflight checks launch-readiness only; board-execution claims come from in-repo HIL or stronger release evidence, not from preflight itself.',
         'mock_robot_transport': bool(use_mock_robot),
     }
 
@@ -164,6 +184,8 @@ def build_preflight_report(
             for key, value in paths.items():
                 ok, detail = _check_path_writable(value)
                 checks.append(PreflightCheck(name=f'path:{key}', ok=ok, detail=detail, blocking=True, severity='fatal' if not ok else 'info', phase='runtime_paths'))
+        if profile.deployment_tier() == 'real_robot':
+            checks.extend(_check_ros2_control_standardization_artifacts(repo_root=_canonical_repo_root(), role='verified_board_driver'))
 
     runtime = profile.runtime()
     if surface in {'backend', 'web_bridge'}:

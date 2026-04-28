@@ -166,6 +166,7 @@ def apply_session_policy_to_context(context: CommandContext, policy: SessionPoli
 class ContractCheckResult:
     ok: bool
     reason: str = 'ok'
+    detail_code: str = ''
 
 
 def command_allowed_modes(command_type: str) -> tuple[str, ...]:
@@ -175,10 +176,10 @@ def command_allowed_modes(command_type: str) -> tuple[str, ...]:
 
 def _session_allows_write(context: CommandContext) -> ContractCheckResult:
     if context.session_write_enabled:
-        return ContractCheckResult(True, 'ok')
+        return ContractCheckResult(True, 'ok', 'ok')
     role = str(context.session_role or 'observer').strip() or 'observer'
     reason = str(context.session_access_reason or '').strip() or f'session role {role} is read-only'
-    return ContractCheckResult(False, reason)
+    return ContractCheckResult(False, reason, 'readonly_session')
 
 
 def allowed_target_modes(context: CommandContext) -> dict[str, str]:
@@ -245,19 +246,19 @@ def mode_transition_allowed(context: CommandContext, target_mode: str) -> Contra
     """
     normalized = str(target_mode or '').strip().upper()
     if not normalized:
-        return ContractCheckResult(False, 'target mode must be non-empty')
+        return ContractCheckResult(False, 'target mode must be non-empty', 'mode_transition_guard_rejected')
     session_access = _session_allows_write(context)
     if not session_access.ok:
         return session_access
     if normalized == context.current_mode:
-        return ContractCheckResult(False, 'already in requested mode')
+        return ContractCheckResult(False, 'already in requested mode', 'mode_transition_guard_rejected')
     allowed = allowed_target_modes(context)
     if normalized not in allowed:
         blocked_reason = context.safe_stop_blocked_reason if context.current_mode == 'SAFE_STOP' and not context.safe_stop_recoverable else None
         if blocked_reason and normalized in {'IDLE', 'MANUAL'}:
-            return ContractCheckResult(False, blocked_reason)
+            return ContractCheckResult(False, blocked_reason, 'safe_stop_not_recoverable')
         allowed_list = ', '.join(sorted(allowed)) if allowed else '(none)'
-        return ContractCheckResult(False, f'{context.current_mode} cannot transition to {normalized}; allowed targets: {allowed_list}')
+        return ContractCheckResult(False, f'{context.current_mode} cannot transition to {normalized}; allowed targets: {allowed_list}', 'mode_transition_guard_rejected')
     return ContractCheckResult(True, allowed[normalized])
 
 
@@ -278,16 +279,16 @@ def command_guard(command_type: str, context: CommandContext, *, payload: Mappin
     normalized = str(command_type or '').strip()
     allowed_modes = command_allowed_modes(normalized)
     if not allowed_modes:
-        return ContractCheckResult(False, f'unsupported command: {normalized}')
+        return ContractCheckResult(False, f'unsupported command: {normalized}', 'unsupported_command')
     session_access = _session_allows_write(context)
     if not session_access.ok:
         return session_access
     if context.current_mode not in allowed_modes:
-        return ContractCheckResult(False, f'{normalized} is not allowed while mode={context.current_mode}; allowed modes: {", ".join(allowed_modes)}')
+        return ContractCheckResult(False, f'{normalized} is not allowed while mode={context.current_mode}; allowed modes: {", ".join(allowed_modes)}', 'mode_not_manual' if normalized == 'teleop_cmd' else 'mode_guard_rejected')
     if normalized == 'teleop_cmd' and context.current_mode != 'MANUAL':
-        return ContractCheckResult(False, 'teleop is only allowed in MANUAL mode')
+        return ContractCheckResult(False, 'teleop is only allowed in MANUAL mode', 'mode_not_manual')
     if normalized == 'resume_from_safe_stop' and not context.safe_stop_recoverable:
-        return ContractCheckResult(False, context.safe_stop_blocked_reason or 'safe stop recovery is currently blocked')
+        return ContractCheckResult(False, context.safe_stop_blocked_reason or 'safe stop recovery is currently blocked', 'safe_stop_not_recoverable')
     if normalized == 'start_patrol' and not mode_transition_allowed(context, 'PATROL').ok:
         return mode_transition_allowed(context, 'PATROL')
     if normalized == 'set_mode':
@@ -296,7 +297,7 @@ def command_guard(command_type: str, context: CommandContext, *, payload: Mappin
     target_mode = COMMAND_TARGET_MODE.get(normalized)
     if target_mode:
         return mode_transition_allowed(context, target_mode)
-    return ContractCheckResult(True, 'ok')
+    return ContractCheckResult(True, 'ok', 'ok')
 
 
 def command_capability_snapshot(context: CommandContext) -> dict[str, Any]:

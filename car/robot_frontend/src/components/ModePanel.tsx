@@ -2,6 +2,7 @@ import { MODE_ORDER } from '@/shared/constants';
 import { canTransitionMode } from '@/machines/modeRules';
 import { robotBridge } from '@/bridge/client';
 import { commandButtonState } from '@/bridge/commandPolicy';
+import { FeatureMaturityPills } from '@/components/FeatureMaturityPills';
 import { SectionCard } from '@/components/SectionCard';
 import { StatusPill } from '@/components/StatusPill';
 import { useRobotStore } from '@/store/useRobotStore';
@@ -19,7 +20,7 @@ export function ModePanel() {
   return (
     <SectionCard
       title="模式状态"
-      right={<StatusPill label={motion.mode} tone={riskyModes.includes(motion.mode) ? 'danger' : motion.mode === 'IDLE' ? 'neutral' : 'success'} />}
+      right={<div className="toolbar-inline"><FeatureMaturityPills featureIds={['operator.mode_switch']} /><StatusPill label={motion.mode} tone={riskyModes.includes(motion.mode) ? 'danger' : motion.mode === 'IDLE' ? 'neutral' : 'success'} /></div>}
     >
       <div className="mode-grid">
         {MODE_ORDER.map((mode) => {

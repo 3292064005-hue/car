@@ -22,6 +22,7 @@ except Exception:  # pragma: no cover
     GoalResponse = None
 from robot_utils.config_loader import load_structured_file
 from robot_utils.parameter_schema import validate_color_profiles
+from robot_contracts.runtime_parameters import validate_vision_runtime_params
 from robot_utils.message_factory import make_event
 from robot_vision.color_detector import ColorDetector
 from robot_vision.debug_overlay import draw_target, draw_text
@@ -49,14 +50,37 @@ class VisionNode(Node):
         self.declare_parameter('color_profile_path', '')
         self.declare_parameter('stable_detection_hits', 2)
         self.declare_parameter('stable_detection_misses', 3)
+        self.declare_parameter('tracker_max_center_jump', 0.35)
+        self.declare_parameter('tracker_max_area_ratio_delta', 1.5)
         self.declare_parameter('enable_debug_overlay', False)
         self.declare_parameter('qrcode_cooldown_sec', 2.0)
+        self.declare_parameter('color_detection_cooldown_sec', 1.0)
+        self.declare_parameter('color_snapshot_min_interval_sec', 2.0)
         self.declare_parameter('stream_fault_after_misses', 10)
         self.declare_parameter('capture_reconnect_backoff_sec', 0.5)
         self.declare_parameter('capture_reopen_after_misses', 5)
         self.declare_parameter('capture_process_enabled', True)
         self.declare_parameter('capture_ipc_queue_max', 1)
 
+        vision_param_errors = validate_vision_runtime_params({
+            'poll_period': self.get_parameter('poll_period').value,
+            'snapshot_async_queue_max': self.get_parameter('snapshot_async_queue_max').value,
+            'snapshot_result_drain_max': self.get_parameter('snapshot_result_drain_max').value,
+            'min_detection_confidence': self.get_parameter('min_detection_confidence').value,
+            'stable_detection_hits': self.get_parameter('stable_detection_hits').value,
+            'stable_detection_misses': self.get_parameter('stable_detection_misses').value,
+            'tracker_max_center_jump': self.get_parameter('tracker_max_center_jump').value,
+            'tracker_max_area_ratio_delta': self.get_parameter('tracker_max_area_ratio_delta').value,
+            'qrcode_cooldown_sec': self.get_parameter('qrcode_cooldown_sec').value,
+            'color_detection_cooldown_sec': self.get_parameter('color_detection_cooldown_sec').value,
+            'color_snapshot_min_interval_sec': self.get_parameter('color_snapshot_min_interval_sec').value,
+            'stream_fault_after_misses': self.get_parameter('stream_fault_after_misses').value,
+            'capture_reconnect_backoff_sec': self.get_parameter('capture_reconnect_backoff_sec').value,
+            'capture_reopen_after_misses': self.get_parameter('capture_reopen_after_misses').value,
+            'capture_ipc_queue_max': self.get_parameter('capture_ipc_queue_max').value,
+        })
+        if vision_param_errors:
+            raise ValueError(f'invalid robot_vision runtime parameters: {vision_param_errors}')
         self.callback_groups = build_callback_groups()
         self.target_pub = self.create_publisher(VisionTarget, '/robot/vision/target', qos_for('perception'))
         self.qrcode_pub = self.create_publisher(String, '/robot/vision/qrcode', qos_for('event_log'))
@@ -81,6 +105,10 @@ class VisionNode(Node):
         )
         self.last_qrcode_text = ''
         self.last_qrcode_time = 0.0
+        self.last_color_label = ''
+        self.last_color_detect_time = 0.0
+        self.last_color_snapshot_label = ''
+        self.last_color_snapshot_time = 0.0
         self.stream_miss_count = 0
         self.stream_fault_latched = False
         self._last_capture_reconnect_count = 0
@@ -95,6 +123,8 @@ class VisionNode(Node):
         self.color_tracker = DetectionTracker(
             min_hits=int(self.get_parameter('stable_detection_hits').value),
             max_misses=int(self.get_parameter('stable_detection_misses').value),
+            max_center_jump=float(self.get_parameter('tracker_max_center_jump').value),
+            max_area_ratio_delta=float(self.get_parameter('tracker_max_area_ratio_delta').value),
         )
         self.qr_detector = QrCodeDetector()
         call_with_callback_group(self.create_subscription, String, '/robot/vision/snapshot_request', self.on_snapshot_request, qos_for('control_cmd'), callback_group=self.callback_groups.control)
@@ -175,6 +205,25 @@ class VisionNode(Node):
         self.last_qrcode_time = now
         return True
 
+
+    def _color_detection_edge_allowed(self, label: str) -> bool:
+        now = self.get_clock().now().nanoseconds / 1e9
+        cooldown = float(self.get_parameter('color_detection_cooldown_sec').value)
+        if label == self.last_color_label and (now - self.last_color_detect_time) < cooldown:
+            return False
+        self.last_color_label = label
+        self.last_color_detect_time = now
+        return True
+
+    def _color_snapshot_edge_allowed(self, label: str) -> bool:
+        now = self.get_clock().now().nanoseconds / 1e9
+        cooldown = float(self.get_parameter('color_snapshot_min_interval_sec').value)
+        if label == self.last_color_snapshot_label and (now - self.last_color_snapshot_time) < cooldown:
+            return False
+        self.last_color_snapshot_label = label
+        self.last_color_snapshot_time = now
+        return True
+
     def _drain_snapshot_results(self) -> None:
         """Flush asynchronous snapshot completions back into the ROS event stream.
 
@@ -243,16 +292,26 @@ class VisionNode(Node):
                 self._queue_snapshot(frame, f'qrcode_{qr.text}')
             return
         color = self.color_detector.detect(frame)
-        stable = self.color_tracker.update(color.detected, color.label, color.confidence)
+        stable = self.color_tracker.update(
+            color.detected,
+            color.label,
+            color.confidence,
+            color.center_x,
+            color.center_y,
+            color.area,
+        )
         min_conf = float(self.get_parameter('min_detection_confidence').value)
         if color.detected and stable.detected and color.confidence >= min_conf:
             overlay = draw_target(frame, color.center_x, color.center_y, color.label, 0.0, color.confidence) if bool(self.get_parameter('enable_debug_overlay').value) else frame
             target = build_target_message(overlay, True, color.label, color.center_x, color.center_y, color.area, confidence=color.confidence, stable_hits=stable.hits, lost_count=stable.misses)
             self.target_pub.publish(target)
-            self.publish_event('target_detected', color.label)
-            if bool(self.get_parameter('snapshot_on_color').value):
+            if stable.just_detected and self._color_detection_edge_allowed(color.label):
+                self.publish_event('target_detected', color.label)
+            if stable.just_detected and bool(self.get_parameter('snapshot_on_color').value) and self._color_snapshot_edge_allowed(color.label):
                 self._queue_snapshot(frame, f'color_{color.label}')
         else:
+            if stable.just_lost:
+                self.publish_event('target_lost', stable.label or 'unknown')
             self.target_pub.publish(VisionTarget())
 
     def on_snapshot_request(self, msg: String) -> None:

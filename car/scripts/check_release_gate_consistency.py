@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterable
 
 from release_gate_manifest import LANES, workflow_required_strings
+from robot_contracts.release_gate_registry import release_gate_readme_required_strings
 from workspace_layout import resolve_workspace_layout
 
 LAYOUT = resolve_workspace_layout(Path(__file__))
@@ -49,11 +50,8 @@ def main() -> int:
     if missing_workflow:
         raise SystemExit(f'workflow gate drift: missing markers: {missing_workflow}')
 
-    readme_expectations = [
+    readme_expectations = list(release_gate_readme_required_strings()) + [
         'run_release_verification.sh --with-frontend --with-ros-smoke --with-integrated-frontend-smoke',
-        'Frontend E2E',
-        'Mock system web bridge launch smoke',
-        'Integrated frontend + web bridge smoke',
         '--config-path',
     ]
     missing_readme = _missing_markers(readme_text, readme_expectations)

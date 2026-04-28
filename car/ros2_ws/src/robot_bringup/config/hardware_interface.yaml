@@ -1,18 +1,26 @@
 robot_hardware_interface:
+  # Hardware role semantics are explicit:
+  # - ros_projection_only: ROS projection/observability only.
+  # - ros_soft_driver: ROS-owned soft driver loop with no verified board-execution claim.
+  # - verified_board_driver: requires fresh HIL/target acceptance bound to current source/config identity.
   ros__parameters:
     joint_state_topic: /joint_states
     battery_state_topic: /battery_state
-    cmd_vel_observed_topic: /cmd_vel
+    # /robot/cmd_vel_final is the authoritative command output. This observed
+    # projection topic is intentionally not /cmd_vel unless the compatibility
+    # alias is explicitly enabled for a legacy toolchain.
+    cmd_vel_observed_topic: /robot/hardware/cmd_vel_observed
+    enable_cmd_vel_alias: false
     summary_topic: /robot/hardware_interface/summary
     left_wheel_joint_name: left_wheel_joint
     right_wheel_joint_name: right_wheel_joint
-    compatibility_surface_role: ros_projection_only
+    compatibility_surface_role: ros_soft_driver
     board_validation_in_repo: false
     board_execution_confirmed: false
-    feedback_source: external_transport_or_mock
-    actuation_boundary: outside_ros_projection_node
-    transport_authority: external_board_controller
+    feedback_source: direct_board_feedback
+    actuation_boundary: inside_ros_driver
+    transport_authority: ros_process_driver
     verification_stage: host_harness_only
-    command_transport: tcp_json_bridge
-    verification_artifact_path: ''
+    command_transport: direct_driver_loop
+    verification_artifact_path: ""
     direct_driver_lane_policy: separate_package_required

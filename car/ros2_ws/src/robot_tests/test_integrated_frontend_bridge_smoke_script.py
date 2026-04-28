@@ -68,6 +68,7 @@ def test_integrated_smoke_main_success(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(MODULE, '_poll_for_expected_topics', lambda **kwargs: set(MODULE.DEFAULT_EXPECTED_READY_TOPICS))
     monkeypatch.setattr(MODULE, '_wait_for_tcp', lambda host, port, deadline_monotonic: None)
     monkeypatch.setattr(MODULE, '_wait_for_websocket_listener', lambda ws_url, deadline_monotonic: None)
+    monkeypatch.setattr(MODULE, '_wait_for_api_health', lambda url, deadline_monotonic: None)
     monkeypatch.setattr(MODULE, '_terminate_process_group', lambda process, grace_sec: None)
     monkeypatch.setattr(MODULE.subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(returncode=0, stdout='', stderr=''))
     monkeypatch.setattr(Path, 'open', lambda self, mode='r', encoding=None, errors=None: _DummyLog())
@@ -77,6 +78,8 @@ def test_integrated_smoke_main_success(monkeypatch, tmp_path: Path) -> None:
     assert captured['launch_cmd'][:3] == ['ros2', 'launch', 'robot_bringup']
     assert captured['env']['ROS_DOMAIN_ID'] == '92'
     assert captured['env']['PLAYWRIGHT_LIVE_BRIDGE'] == '1'
+    assert captured['env']['VITE_ROBOT_WS_SURFACE_KIND'] == 'api_facade'
+    assert captured['env']['VITE_ROBOT_WS_AUTHORITY'] == 'authoritative_operator'
 
 
 def test_integrated_smoke_main_failure_reports_log_tails(monkeypatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

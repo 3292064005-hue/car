@@ -59,6 +59,14 @@ class NavigationStatusIntent:
 
 
 @dataclass(frozen=True)
+class RuntimeOrchestrationIntent:
+    """Normalized runtime-orchestration report."""
+
+    raw_message: String
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class RuntimeSupervisionIntent:
     """Normalized runtime-supervision report."""
 
@@ -144,6 +152,15 @@ class DecisionIngress:
         if not isinstance(payload, dict):
             raise ValueError('runtime supervision payload must be a JSON object')
         return RuntimeSupervisionIntent(raw_message=msg, payload=payload)
+
+    def parse_runtime_orchestration_msg(self, msg: String) -> RuntimeOrchestrationIntent:
+        """Parse one runtime orchestration JSON payload."""
+        if msg is None:
+            raise TypeError('runtime orchestration message must not be None')
+        payload = json.loads(str(getattr(msg, 'data', '') or '{}'))
+        if not isinstance(payload, dict):
+            raise ValueError('runtime orchestration payload must be a JSON object')
+        return RuntimeOrchestrationIntent(raw_message=msg, payload=payload)
 
     def parse_chassis_state_msg(self, msg: Any) -> Any:
         if msg is None:

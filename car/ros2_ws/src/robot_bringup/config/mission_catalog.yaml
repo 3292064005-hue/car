@@ -1,0 +1,51 @@
+robot_decision_mission_catalog:
+  ros__parameters:
+    default_mission_id: default_patrol
+    missions:
+      default_patrol:
+        title: 默认巡检
+        route_name: default
+        task_profile: route_patrol
+        auto_track: true
+        resume_policy: restart_route
+        operator_notes:
+          - 单机主线任务，进入 PATROL 后由 navigation 执行 route。
+          - 可在产品接口中显式选择 missionId，但仍必须通过 9100 API facade 下发。
+        stages:
+          - stage_id: route_execution
+            title: 路径执行
+            kind: route
+            route_name: default
+            timeout_sec: 300.0
+            success_message: route_complete
+          - stage_id: inspection_verification
+            title: 巡检收尾
+            kind: verification
+            timeout_sec: 10.0
+            success_message: mission_complete
+            verification_rules:
+              requiredNavigationState: route_completed
+              minimumCompletedGoals: 1
+              requirePositiveProgress: true
+              requireRuntimeReady: true
+      dock_then_patrol:
+        title: 回桩后巡检
+        route_name: docking_loop
+        task_profile: dock_then_patrol
+        auto_track: false
+        resume_policy: restart_stage
+        operator_notes:
+          - 复杂任务仍是单机内编排，不引入 fleet。
+        stages:
+          - stage_id: docking_route
+            title: 回桩路径
+            kind: route
+            route_name: docking_loop
+            timeout_sec: 240.0
+            success_message: docking_complete
+          - stage_id: patrol_route
+            title: 巡检路径
+            kind: route
+            route_name: default
+            timeout_sec: 300.0
+            success_message: patrol_complete

@@ -126,6 +126,25 @@ export function safeNowIso(): string {
   return new Date().toISOString();
 }
 
+function normalizeHistoryState(history: unknown): HistoryState {
+  const mapping = history && typeof history === 'object' ? (history as Partial<Record<keyof HistoryState, unknown>>) : {};
+  const listOrEmpty = (value: unknown): number[] => (Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number' && Number.isFinite(item)) : []);
+  return {
+    latency: listOrEmpty(mapping.latency),
+    battery: listOrEmpty(mapping.battery),
+    leftWheel: listOrEmpty(mapping.leftWheel),
+    rightWheel: listOrEmpty(mapping.rightWheel),
+    frameDrops: listOrEmpty(mapping.frameDrops),
+    ackLatency: listOrEmpty(mapping.ackLatency),
+  };
+}
+
+function hasSystemReplayMetadata(value: unknown): value is Record<string, string> {
+  if (!value || typeof value !== 'object') return false;
+  const mapping = value as Record<string, unknown>;
+  return ['sessionId', 'profileName', 'providerName', 'hardwareRole', 'evidenceClass'].every((key) => typeof mapping[key] === 'string' && String(mapping[key]).trim().length > 0);
+}
+
 export function buildSessionExport(logs: LogItem[], history: HistoryState, params: unknown, inspectorTrace: InspectorRecord[] = [], commands: CommandRecord[] = []): string {
   return toJson({
     kind: 'offline-session-export',
@@ -143,11 +162,21 @@ export function buildSessionExport(logs: LogItem[], history: HistoryState, param
 
 export function parseReplaySession(raw: string): ReplaySession | null {
   try {
-    const parsed = JSON.parse(raw) as ReplaySession;
+    const parsed = JSON.parse(raw) as ReplaySession & {
+      topics?: unknown[];
+      serviceActionEvents?: unknown[];
+      traceCorrelation?: unknown[];
+      sessionMetadata?: unknown;
+    };
     if (!parsed || typeof parsed !== 'object') return null;
-    if (parsed.kind !== 'offline-session-export') return null;
-    if (!Array.isArray(parsed.logs) || !parsed.history || !parsed.params) return null;
-    return parsed;
+    if (!Array.isArray(parsed.logs) || !parsed.params) return null;
+    const normalizedHistory = normalizeHistoryState(parsed.history);
+    if (parsed.kind === 'offline-session-export' || !parsed.kind) return { ...parsed, history: normalizedHistory };
+    if (parsed.kind === 'system-replay-bundle') {
+      if (!Array.isArray(parsed.topics) || !Array.isArray(parsed.serviceActionEvents) || !Array.isArray(parsed.traceCorrelation) || !hasSystemReplayMetadata(parsed.sessionMetadata)) return null;
+      return { ...parsed, history: normalizedHistory };
+    }
+    return null;
   } catch {
     return null;
   }

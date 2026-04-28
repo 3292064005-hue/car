@@ -11,3 +11,17 @@ robot_bridge:
     require_operator_token: true
     operator_tokens: []
     internal_command_socket_path: /tmp/inspection_robot/bridge_internal_command.sock
+    enable_standard_observability_bridge: false
+    standard_observability_bridge_family: repo_readonly_websocket
+    standard_observability_bridge_listen_host: 127.0.0.1
+    standard_observability_bridge_port: 8765
+    standard_observability_bridge_ws_path: /observability
+    standard_observability_bridge_require_localhost: true
+    standard_observability_bridge_readonly_topics:
+      - /robot/bridge/summary
+      - /robot/decision/summary
+      - /robot/control/summary
+      - /robot/navigation/status
+      - /robot/runtime/supervision
+    standard_observability_bridge_upstream_url: ws://127.0.0.1:9001/ws
+    standard_observability_bridge_command: []

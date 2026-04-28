@@ -1,0 +1,67 @@
+{
+  "artifact": "car_delivery_all_resolved_docs_linked.zip",
+  "markdown_files": 15,
+  "total_markdown_links": 99,
+  "files": [
+    {
+      "file": "README.md",
+      "markdown_link_count": 22
+    },
+    {
+      "file": "artifacts/validation/VALIDATION_EVIDENCE.md",
+      "markdown_link_count": 0
+    },
+    {
+      "file": "docs/adr/000-mainline-guardrails.md",
+      "markdown_link_count": 0
+    },
+    {
+      "file": "docs/architecture.md",
+      "markdown_link_count": 17
+    },
+    {
+      "file": "docs/configuration.md",
+      "markdown_link_count": 8
+    },
+    {
+      "file": "docs/index.md",
+      "markdown_link_count": 17
+    },
+    {
+      "file": "docs/protocols/bridge-contract.md",
+      "markdown_link_count": 2
+    },
+    {
+      "file": "docs/protocols/tcp-json.md",
+      "markdown_link_count": 2
+    },
+    {
+      "file": "docs/protocols/uart-binary.md",
+      "markdown_link_count": 2
+    },
+    {
+      "file": "docs/release_notes/2026-04-patchC.md",
+      "markdown_link_count": 5
+    },
+    {
+      "file": "docs/state-machine.md",
+      "markdown_link_count": 0
+    },
+    {
+      "file": "docs/verification.md",
+      "markdown_link_count": 2
+    },
+    {
+      "file": "robot_frontend/README.md",
+      "markdown_link_count": 7
+    },
+    {
+      "file": "ros2_ws/src/robot_tests/README.md",
+      "markdown_link_count": 7
+    },
+    {
+      "file": "ros2_ws/src/robot_web_bridge/README.md",
+      "markdown_link_count": 8
+    }
+  ]
+}

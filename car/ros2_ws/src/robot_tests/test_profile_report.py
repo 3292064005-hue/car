@@ -74,7 +74,7 @@ def test_profile_report_contains_dependency_plan_and_runtime_policy() -> None:
     assert report['navigation_provider']['resolvedProvider']['providerName'] == 'simple_nav_provider'
 
 
-def test_profile_report_accepts_separate_package_direct_driver_lane(tmp_path: Path) -> None:
+def test_profile_report_accepts_separate_package_verified_board_driver_lane(tmp_path: Path) -> None:
     config_root = tmp_path / 'cfg'
     config_root.mkdir()
     _write_mock_launch_profile(config_root)
@@ -82,7 +82,7 @@ def test_profile_report_accepts_separate_package_direct_driver_lane(tmp_path: Pa
     (config_root / 'hardware_interface.yaml').write_text(
         f'''robot_hardware_interface:
   ros__parameters:
-    compatibility_surface_role: direct_driver
+    compatibility_surface_role: verified_board_driver
     board_validation_in_repo: true
     board_execution_confirmed: true
     feedback_source: direct_board_feedback
@@ -97,14 +97,15 @@ def test_profile_report_accepts_separate_package_direct_driver_lane(tmp_path: Pa
     _write_target_acceptance(artifact, config_path=str(config_root))
     report = build_report('mock', config_path=str(config_root))
     boundary = report['hardware_boundary']
-    assert boundary['compatibilitySurfaceRole'] == 'direct_driver'
+    assert boundary['compatibilitySurfaceRole'] == 'verified_board_driver'
     assert boundary['activationDecision'] == 'activate'
     assert boundary['validationStatus'] == 'accepted'
     assert boundary['governanceLane']['packageName'] == 'robot_direct_driver'
     assert boundary['commandTransport'] == 'direct_driver_loop'
+    assert boundary['embeddedRuntimeLayout']['separationMode'] == 'dedicated_modules_with_thin_wrappers'
 
 
-def test_profile_report_accepts_explicit_same_package_experimental_direct_driver_lane(tmp_path: Path) -> None:
+def test_profile_report_accepts_explicit_same_package_experimental_verified_board_driver_lane(tmp_path: Path) -> None:
     config_root = tmp_path / 'cfg'
     config_root.mkdir()
     _write_mock_launch_profile(config_root)
@@ -112,7 +113,7 @@ def test_profile_report_accepts_explicit_same_package_experimental_direct_driver
     (config_root / 'hardware_interface.yaml').write_text(
         f'''robot_hardware_interface:
   ros__parameters:
-    compatibility_surface_role: direct_driver
+    compatibility_surface_role: verified_board_driver
     board_validation_in_repo: true
     board_execution_confirmed: true
     feedback_source: direct_board_feedback
@@ -128,7 +129,7 @@ def test_profile_report_accepts_explicit_same_package_experimental_direct_driver
     _write_target_acceptance(artifact, config_path=str(config_root))
     report = build_report('mock', config_path=str(config_root))
     boundary = report['hardware_boundary']
-    assert boundary['compatibilitySurfaceRole'] == 'direct_driver'
+    assert boundary['compatibilitySurfaceRole'] == 'verified_board_driver'
     assert boundary['boardValidationInRepo'] is True
     assert boundary['boardExecutionConfirmed'] is True
     assert boundary['feedbackSource'] == 'direct_board_feedback'

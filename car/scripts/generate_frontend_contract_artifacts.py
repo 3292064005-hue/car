@@ -13,6 +13,7 @@ for pkg in ROS2_ROOT.iterdir():
 
 from robot_contracts.bridge_contract import (  # type: ignore
     BRIDGE_CAPABILITIES,
+    COMMAND_LIFECYCLE_PHASES,
     COMMAND_TYPES,
     COMPATIBILITY_MODES,
     INBOUND_EVENT_TYPES,
@@ -21,6 +22,10 @@ from robot_contracts.bridge_contract import (  # type: ignore
     RUNTIME_PARAM_FRONTEND_LOCAL_KEYS,
     RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE,
     RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL,
+    report_surface_entries,
+    report_surface_kind_list,
+    report_surface_registry_payload,
+    validate_report_surface_registry,
     runtime_param_field_contracts,
     SCHEMA_VERSION,
     TCP_PROTOCOL_VERSION,
@@ -31,16 +36,41 @@ from robot_contracts.capabilities import (  # type: ignore
     canonical_bridge_capabilities,
 )
 from robot_utils.mode_catalog import MODE_SEQUENCE, MODE_TRANSITION_TARGETS  # type: ignore
+from robot_contracts.product_interface_contract import product_interface_contract  # type: ignore
+from robot_decision.mission_catalog import mission_catalog_payload  # type: ignore
 
 GENERATED_DIR = ROOT / 'robot_frontend' / 'src' / 'generated'
 TS_PATH = GENERATED_DIR / 'bridgeContract.ts'
 JSON_PATH = GENERATED_DIR / 'bridgeContract.json'
 MODE_TRANSITIONS_JSON_PATH = GENERATED_DIR / 'modeTransitions.json'
 MODE_TRANSITIONS_TS_PATH = GENERATED_DIR / 'modeTransitions.ts'
+REPORT_SURFACE_CONTRACT_JSON_PATH = GENERATED_DIR / 'reportSurfaceContract.json'
+REPORT_SURFACE_CONTRACT_TS_PATH = GENERATED_DIR / 'reportSurfaceContract.ts'
+PRODUCT_INTERFACE_JSON_PATH = GENERATED_DIR / 'productInterface.json'
+PRODUCT_INTERFACE_TS_PATH = GENERATED_DIR / 'productInterface.ts'
+MISSION_CATALOG_JSON_PATH = GENERATED_DIR / 'missionCatalog.json'
+MISSION_CATALOG_TS_PATH = GENERATED_DIR / 'missionCatalog.ts'
 
 
 def _quoted_list(items: list[str] | tuple[str, ...]) -> str:
     return json.dumps(list(items), ensure_ascii=False)
+
+
+def _pascal_from_report_key(report_key: str) -> str:
+    return str(report_key[:1]).upper() + str(report_key[1:])
+
+
+def _report_surface_schema_symbols() -> list[dict[str, str]]:
+    symbols: list[dict[str, str]] = []
+    for entry in report_surface_entries():
+        stem = _pascal_from_report_key(entry.report_key)
+        symbols.append({
+            'reportKey': entry.report_key,
+            'kind': entry.kind,
+            'detailSchema': f'report{stem}DetailsSchema',
+            'entrySchema': f'report{stem}EntrySchema',
+        })
+    return symbols
 
 
 def _mode_transition_payload() -> dict[str, object]:
@@ -69,6 +99,87 @@ def _render_mode_transitions_ts(payload: dict[str, object]) -> str:
     ).strip() + "\n"
 
 
+def _report_surface_contract_payload() -> dict[str, object]:
+    registry_errors = validate_report_surface_registry()
+    if registry_errors:
+        raise RuntimeError(f'report surface registry invalid: {registry_errors}')
+    return {
+        'authority': 'generate_frontend_contract_artifacts',
+        'reports': report_surface_registry_payload(),
+    }
+
+
+def _render_report_surface_contract_ts(payload: dict[str, object]) -> str:
+    return dedent(
+        f"""
+        export const REPORT_SURFACE_CONTRACT_AUTHORITY = {payload['authority']!r} as const;
+        export const REPORT_SURFACE_CONTRACT = {json.dumps(payload['reports'], ensure_ascii=False, indent=2)} as const;
+        export type GeneratedReportSurfaceContractKey = keyof typeof REPORT_SURFACE_CONTRACT;
+        """
+    ).strip() + "\n"
+
+
+
+
+
+def _frontend_stable_payload(payload: dict[str, object]) -> dict[str, object]:
+    """Return a frontend-generated contract payload without local absolute build paths.
+
+    Args:
+        payload: Contract dictionary produced by backend registries.
+
+    Returns:
+        A shallow/deep-normalized dictionary that keeps functional contract data
+        intact while replacing in-repository absolute ``catalogPath`` values with
+        repo-relative paths.
+
+    Raises:
+        No exception is raised; non-dictionary nested values are preserved.
+
+    Boundary behavior:
+        Only ``catalogPath`` values inside the repository root are normalized.
+        External paths remain unchanged because they identify an explicit runtime
+        override outside this repository.
+    """
+    def normalize(value: object) -> object:
+        if isinstance(value, dict):
+            result: dict[str, object] = {}
+            for key, nested in value.items():
+                if key == 'catalogPath' and isinstance(nested, str):
+                    try:
+                        candidate = Path(nested).resolve()
+                        result[key] = candidate.relative_to(ROOT).as_posix()
+                    except Exception:
+                        result[key] = nested
+                else:
+                    result[key] = normalize(nested)
+            return result
+        if isinstance(value, list):
+            return [normalize(item) for item in value]
+        return value
+
+    normalized = normalize(payload)
+    return normalized if isinstance(normalized, dict) else payload
+
+
+def _product_interface_payload() -> dict[str, object]:
+    config_root = ROOT / 'ros2_ws' / 'src' / 'robot_bringup' / 'config'
+    return _frontend_stable_payload(product_interface_contract(api_prefix='/api/v1', config_root=config_root))
+
+
+def _mission_catalog_payload() -> dict[str, object]:
+    config_root = ROOT / 'ros2_ws' / 'src' / 'robot_bringup' / 'config'
+    return _frontend_stable_payload(mission_catalog_payload(config_root))
+
+
+def _render_json_constant_ts(const_name: str, payload: dict[str, object], extra_exports: str = '') -> str:
+    return dedent(
+        f"""
+        export const {const_name} = {json.dumps(payload, ensure_ascii=False, indent=2)} as const;
+        {extra_exports}
+        """
+    ).strip() + "\n"
+
 def _render_generated_ts(payload: dict[str, object]) -> str:
     command_types = list(payload['commandTypes'])
     inbound_event_types = list(payload['inboundEventTypes'])
@@ -76,7 +187,9 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
     bridge_capabilities = list(payload['bridgeCapabilities'])
     canonical_bridge_capabilities = list(payload['canonicalBridgeCapabilities'])
     deprecated_bridge_capability_aliases = dict(payload['deprecatedBridgeCapabilityAliases'])
+    command_lifecycle_phases = list(payload['commandLifecyclePhases'])
     command_types_json = _quoted_list(command_types)
+    command_lifecycle_phases_json = _quoted_list(command_lifecycle_phases)
     inbound_event_types_json = _quoted_list(inbound_event_types)
     compatibility_modes_json = _quoted_list(compatibility_modes)
     bridge_capabilities_json = _quoted_list(bridge_capabilities)
@@ -85,6 +198,19 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
     runtime_param_field_scopes_json = json.dumps(payload['runtimeParamFieldScopes'], ensure_ascii=False, indent=2)
     runtime_param_backend_authoritative_keys_json = _quoted_list(payload['runtimeParamBackendAuthoritativeKeys'])
     runtime_param_frontend_local_keys_json = _quoted_list(payload['runtimeParamFrontendLocalKeys'])
+    report_kind_json = _quoted_list(report_surface_kind_list())
+    report_key_json = _quoted_list([entry.report_key for entry in report_surface_entries()])
+    report_kind_to_key_json = json.dumps({entry.kind: entry.report_key for entry in report_surface_entries()}, ensure_ascii=False, indent=2)
+    report_key_to_kind_json = json.dumps({entry.report_key: entry.kind for entry in report_surface_entries()}, ensure_ascii=False, indent=2)
+    report_schema_symbols = _report_surface_schema_symbols()
+    report_entry_schema_declarations = '\n'.join(
+        f"        export const {item['entrySchema']} = reportSurfaceEntryBaseSchema.extend({{\n          kind: z.literal({item['kind']!r}),\n          details: {item['detailSchema']},\n        }});"
+        for item in report_schema_symbols
+    )
+    report_union_members = ',\n'.join(f"          {item['entrySchema']}" for item in report_schema_symbols)
+    report_state_schema_lines = '\n'.join(
+        f"          {item['reportKey']}: reportSurfaceEntrySchema.optional()," for item in report_schema_symbols
+    )
     return dedent(
         f"""
         import {{ z }} from 'zod';
@@ -101,7 +227,9 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
         export const DEPRECATED_BRIDGE_CAPABILITY_ALIASES = {deprecated_bridge_capability_aliases_json} as const;
         export const COMMAND_TYPES = {command_types_json} as const;
         export const INBOUND_EVENT_TYPES = {inbound_event_types_json} as const;
+        export const COMMAND_LIFECYCLE_PHASES = {command_lifecycle_phases_json} as const;
         export type GeneratedCommandType = typeof COMMAND_TYPES[number];
+        export type GeneratedCommandLifecyclePhase = typeof COMMAND_LIFECYCLE_PHASES[number];
         export type GeneratedInboundEventType = typeof INBOUND_EVENT_TYPES[number];
         export const RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE = {RUNTIME_PARAM_SCOPE_BACKEND_AUTHORITATIVE!r} as const;
         export const RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL = {RUNTIME_PARAM_SCOPE_FRONTEND_LOCAL!r} as const;
@@ -116,6 +244,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
         export const logDomainSchema = z.enum(['SYSTEM', 'BRIDGE', 'CONTROL', 'VISION', 'VOICE', 'TASK', 'SAFETY', 'PARAM', 'REPLAY', 'INSPECTOR', 'REPORT']);
         export const commandAckStatusSchema = z.enum(['queued', 'ack', 'rejected', 'denied', 'timeout', 'cancelled']);
         export const commandLifecycleStatusSchema = z.enum(['queued', 'accepted', 'applied', 'completed', 'rejected', 'denied', 'timeout', 'cancelled']);
+        export const commandLifecyclePhaseSchema = z.enum(COMMAND_LIFECYCLE_PHASES);
         export const commandPhaseSchema = z.enum(['idle', 'queued', 'accepted', 'running', 'completed', 'aborted', 'cancelled']);
         export const wakeStatusSchema = z.enum(['idle', 'listening', 'triggered']);
         export const compatibilityModeSchema = z.enum(COMPATIBILITY_MODES);
@@ -245,6 +374,11 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           operatorReady: z.boolean().optional(),
           operatorReadyReasons: z.array(z.string()).optional(),
           operatorReadyTopic: z.string().nullable().optional(),
+          surfaceId: z.string().optional(),
+          surfaceLayers: z.array(z.string()).optional(),
+          surfaceAuthorityModel: z.string().optional(),
+          surfaceWriteEnabled: z.boolean().optional(),
+          surfaceMachineGateAllowed: z.boolean().optional(),
           sessionRole: z.string().optional(),
           sessionRequestedRole: z.string().optional(),
           sessionWriteEnabled: z.boolean().optional(),
@@ -355,7 +489,10 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
 
 
         export const reportSeveritySchema = z.enum(['info', 'success', 'warn', 'error']);
-        export const reportKindSchema = z.enum(['control_summary', 'monitor_summary', 'monitor_diagnostics', 'localization_summary', 'hardware_interface_summary', 'navigation_status', 'navigation_path', 'runtime_supervision']);
+        export const REPORT_SURFACE_KEYS = {report_key_json} as const;
+        export const REPORT_SURFACE_KIND_TO_KEY = {report_kind_to_key_json} as const;
+        export const REPORT_SURFACE_KEY_TO_KIND = {report_key_to_kind_json} as const;
+        export const reportKindSchema = z.enum({report_kind_json});
 
         export const reportSelectedCommandSchema = z.object({{
           vx: z.number().nullable().optional(),
@@ -496,6 +633,14 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           poseCount: z.number().nullable().optional(),
           hasPath: z.boolean().nullable().optional(),
         }}).passthrough();
+        export const reportRuntimeSupervisionComponentSchema = z.object({{
+          componentId: z.string(),
+          requiredForMainline: z.boolean(),
+          recoveryOwner: z.string(),
+          runtimeTopics: z.array(z.string()),
+          status: z.string(),
+          missingFields: z.array(z.string()),
+        }});
         export const reportRuntimeSupervisionDetailsSchema = z.object({{
           reasons: z.array(z.string()),
           startupBarrierReady: z.boolean(),
@@ -504,6 +649,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           lifecycleManager: reportRuntimeSupervisionLifecycleSchema,
           bondSupervision: reportRuntimeSupervisionBondSchema,
           recoveryPlan: reportRuntimeSupervisionRecoveryPlanSchema,
+          orchestrationComponents: z.record(z.string(), reportRuntimeSupervisionComponentSchema).optional(),
         }});
 
         export const reportSurfaceEntryBaseSchema = z.object({{
@@ -515,65 +661,14 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           summary: z.string().optional(),
           status: z.string().optional(),
         }});
-        export const reportControlSummaryEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('control_summary'),
-          details: reportControlSummaryDetailsSchema,
-        }});
-        export const reportMonitorSummaryEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('monitor_summary'),
-          details: reportMonitorSummaryDetailsSchema,
-        }});
-        export const reportMonitorDiagnosticsEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('monitor_diagnostics'),
-          details: reportMonitorDiagnosticsDetailsSchema,
-        }});
-        export const reportLocalizationSummaryEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('localization_summary'),
-          details: reportLocalizationSummaryDetailsSchema,
-        }});
-        export const reportHardwareInterfaceSummaryEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('hardware_interface_summary'),
-          details: reportHardwareInterfaceSummaryDetailsSchema,
-        }});
-        export const reportNavigationStatusEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('navigation_status'),
-          details: reportNavigationStatusDetailsSchema,
-        }});
-        export const reportVoiceIngressHealthEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('voice_ingress_health'),
-          details: reportVoiceIngressHealthDetailsSchema,
-        }});
-        export const reportNavigationPathEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('navigation_path'),
-          details: reportNavigationPathDetailsSchema,
-        }});
-        export const reportRuntimeSupervisionEntrySchema = reportSurfaceEntryBaseSchema.extend({{
-          kind: z.literal('runtime_supervision'),
-          details: reportRuntimeSupervisionDetailsSchema,
-        }});
+{report_entry_schema_declarations}
         export const reportSurfaceEntrySchema = z.discriminatedUnion('kind', [
-          reportControlSummaryEntrySchema,
-          reportMonitorSummaryEntrySchema,
-          reportMonitorDiagnosticsEntrySchema,
-          reportLocalizationSummaryEntrySchema,
-          reportHardwareInterfaceSummaryEntrySchema,
-          reportNavigationStatusEntrySchema,
-          reportVoiceIngressHealthEntrySchema,
-          reportNavigationPathEntrySchema,
-          reportRuntimeSupervisionEntrySchema,
+{report_union_members}
         ]);
         export type GeneratedReportSurfaceEntry = z.infer<typeof reportSurfaceEntrySchema>;
 
         export const reportsStatePayloadSchema = z.object({{
-          controlSummary: reportSurfaceEntrySchema.optional(),
-          monitorSummary: reportSurfaceEntrySchema.optional(),
-          monitorDiagnostics: reportSurfaceEntrySchema.optional(),
-          localizationSummary: reportSurfaceEntrySchema.optional(),
-          hardwareInterfaceSummary: reportSurfaceEntrySchema.optional(),
-          navigationStatus: reportSurfaceEntrySchema.optional(),
-          voiceIngressHealth: reportSurfaceEntrySchema.optional(),
-          navigationPath: reportSurfaceEntrySchema.optional(),
-          runtimeSupervision: reportSurfaceEntrySchema.optional(),
+{report_state_schema_lines}
         }});
         export type GeneratedReportsStatePayload = z.infer<typeof reportsStatePayloadSchema>;
 
@@ -596,6 +691,7 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           commandId: z.string().min(1),
           status: commandAckStatusSchema,
           lifecycleStatus: commandLifecycleStatusSchema.optional(),
+          lifecyclePhase: commandLifecyclePhaseSchema.optional(),
           message: z.string().optional(),
           detail: z.string().optional(),
         }});
@@ -641,7 +737,12 @@ def _render_generated_ts(payload: dict[str, object]) -> str:
           stop_now: z.object({{ source: z.literal('frontend') }}),
           estop: z.object({{ source: z.literal('frontend') }}),
           resume_from_safe_stop: z.object({{ source: z.literal('frontend') }}),
-          start_patrol: z.object({{ source: z.literal('frontend') }}),
+          start_patrol: z.object({{
+            source: z.literal('frontend'),
+            missionId: z.string().min(1).optional(),
+            routeName: z.string().min(1).optional(),
+            taskProfile: z.string().min(1).optional(),
+          }}),
           pause_patrol: z.object({{ source: z.literal('frontend') }}),
           stop_patrol: z.object({{ source: z.literal('frontend') }}),
           apply_param_draft: z.object({{ params: runtimeParamPatchSchema.refine((value) => Object.keys(value).length > 0, 'runtime param patch must not be empty'), source: z.literal('frontend') }}),
@@ -682,17 +783,31 @@ def main() -> int:
         'canonicalBridgeCapabilities': list(canonical_bridge_capabilities()),
         'deprecatedBridgeCapabilityAliases': dict(DEPRECATED_BRIDGE_CAPABILITY_ALIASES),
         'commandTypes': list(COMMAND_TYPES),
+        'commandLifecyclePhases': list(COMMAND_LIFECYCLE_PHASES),
         'inboundEventTypes': list(INBOUND_EVENT_TYPES),
         'runtimeParamFieldScopes': {key: value['scope'] for key, value in runtime_param_field_contracts().items()},
         'runtimeParamBackendAuthoritativeKeys': list(RUNTIME_PARAM_BACKEND_AUTHORITATIVE_KEYS),
         'runtimeParamFrontendLocalKeys': list(RUNTIME_PARAM_FRONTEND_LOCAL_KEYS),
     }
     mode_payload = _mode_transition_payload()
+    report_surface_contract_payload = _report_surface_contract_payload()
+    product_interface_payload = _product_interface_payload()
+    mission_catalog_payload_value = _mission_catalog_payload()
     JSON_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     TS_PATH.write_text(_render_generated_ts(payload), encoding='utf-8')
     MODE_TRANSITIONS_JSON_PATH.write_text(json.dumps(mode_payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     MODE_TRANSITIONS_TS_PATH.write_text(_render_mode_transitions_ts(mode_payload), encoding='utf-8')
-    print(json.dumps({'status': 'ok', 'ts': str(TS_PATH), 'json': str(JSON_PATH), 'modeTransitionsTs': str(MODE_TRANSITIONS_TS_PATH), 'modeTransitionsJson': str(MODE_TRANSITIONS_JSON_PATH)}, ensure_ascii=False))
+    REPORT_SURFACE_CONTRACT_JSON_PATH.write_text(json.dumps(report_surface_contract_payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    REPORT_SURFACE_CONTRACT_TS_PATH.write_text(_render_report_surface_contract_ts(report_surface_contract_payload), encoding='utf-8')
+    PRODUCT_INTERFACE_JSON_PATH.write_text(json.dumps(product_interface_payload, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    PRODUCT_INTERFACE_TS_PATH.write_text(_render_json_constant_ts('PRODUCT_INTERFACE_CONTRACT', product_interface_payload, 'export type GeneratedProductInterfaceContract = typeof PRODUCT_INTERFACE_CONTRACT;'), encoding='utf-8')
+    MISSION_CATALOG_JSON_PATH.write_text(json.dumps(mission_catalog_payload_value, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    MISSION_CATALOG_TS_PATH.write_text(_render_json_constant_ts(
+        'PRODUCT_MISSION_CATALOG',
+        mission_catalog_payload_value,
+        'export type GeneratedMissionCatalog = typeof PRODUCT_MISSION_CATALOG;\nexport type GeneratedMissionCatalogEntry = typeof PRODUCT_MISSION_CATALOG.missions[keyof typeof PRODUCT_MISSION_CATALOG.missions];',
+    ), encoding='utf-8')
+    print(json.dumps({'status': 'ok', 'ts': str(TS_PATH), 'json': str(JSON_PATH), 'modeTransitionsTs': str(MODE_TRANSITIONS_TS_PATH), 'modeTransitionsJson': str(MODE_TRANSITIONS_JSON_PATH), 'reportSurfaceContractTs': str(REPORT_SURFACE_CONTRACT_TS_PATH), 'reportSurfaceContractJson': str(REPORT_SURFACE_CONTRACT_JSON_PATH), 'productInterfaceTs': str(PRODUCT_INTERFACE_TS_PATH), 'productInterfaceJson': str(PRODUCT_INTERFACE_JSON_PATH), 'missionCatalogTs': str(MISSION_CATALOG_TS_PATH), 'missionCatalogJson': str(MISSION_CATALOG_JSON_PATH)}, ensure_ascii=False))
     return 0
 
 

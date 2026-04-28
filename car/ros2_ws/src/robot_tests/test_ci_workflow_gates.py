@@ -59,3 +59,9 @@ def test_ci_workflow_frontend_jobs_use_isolated_frontend_workspace_and_clean_gat
 def test_ci_workflow_python_jobs_setup_python() -> None:
     workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
     assert workflow.count('uses: actions/setup-python@v5') >= 4
+
+
+def test_ci_workflow_contains_validation_evidence_binding_gate() -> None:
+    workflow = (ROOT / '.github' / 'workflows' / 'ci.yml').read_text(encoding='utf-8')
+    assert 'Validation evidence binding' in workflow
+    assert 'python3 scripts/check_validation_evidence_binding.py' in workflow

@@ -3,6 +3,7 @@ from __future__ import annotations
 """ROS composition root for the decision runtime."""
 
 import threading
+import time
 from contextlib import contextmanager
 from typing import Callable, Iterator, TypeVar
 
@@ -25,14 +26,17 @@ from robot_decision.decision_policy import DecisionPolicy
 from robot_decision.decision_side_effects import DecisionSideEffects
 from robot_decision.decision_state_controller import DecisionStateController
 from robot_decision.mission_context import MissionContext
+from robot_decision.mission_catalog import load_mission_catalog, MissionCatalogEntry
 from robot_decision.mission_orchestrator import MissionOrchestrator
 from robot_decision.mode_guard import ModeGuard
 from robot_decision.runtime_param_adapter import RuntimeParamAdapter
 from robot_decision.track_manager import TrackManager
+from robot_decision.runtime_orchestration_controller import RuntimeOrchestrationController
 from robot_decision.decision_runtime_surface import (
     app_service as resolve_app_service,
     mode_guard as resolve_mode_guard,
     runtime_adapter as resolve_runtime_adapter,
+    runtime_orchestration as resolve_runtime_orchestration,
     side_effects as resolve_side_effects,
     state_controller as resolve_state_controller,
 )
@@ -67,6 +71,7 @@ class DecisionNode(Node):
         self.declare_parameter('snapshot_on_fault', True)
         self.declare_parameter('require_ready_for_patrol', True)
         self.declare_parameter('default_patrol_route', 'default')
+        self.declare_parameter('mission_catalog_path', '')
         self.declare_parameter('decision_intent_queue_max', 128)
         self.declare_parameter('decision_intent_batch_max', 32)
         self.declare_parameter('decision_intent_sync_timeout_sec', 0.25)
@@ -78,6 +83,15 @@ class DecisionNode(Node):
         self.chassis_state: ChassisState | None = None
         self.last_target: VisionTarget | None = None
         self.context = MissionContext()
+        mission_catalog_path = str(self.get_parameter('mission_catalog_path').value or '').strip()
+        self.mission_catalog = load_mission_catalog(mission_catalog_path)
+        self.active_mission_entry: MissionCatalogEntry | None = self.mission_catalog.resolve()
+        self.context.active_mission_id = self.active_mission_entry.mission_id
+        self.context.active_task_profile = self.active_mission_entry.task_profile
+        self.context.planned_route_name = self.active_mission_entry.route_name
+        self.context.task_stage_count = len(self.active_mission_entry.stages)
+        self.context.current_task_stage_index = 0
+        self.context.task_graph = [stage.to_dict() for stage in self.active_mission_entry.stages]
         self._state_lock = threading.RLock()
         self._action_lock = threading.RLock()
         self._safe_stop_manual_confirmed = False
@@ -100,6 +114,7 @@ class DecisionNode(Node):
 
         self.mode_guard = ModeGuard(self)
         self.runtime_adapter = RuntimeParamAdapter(self)
+        self.runtime_orchestration = RuntimeOrchestrationController(self)
         self.mission_orchestrator = MissionOrchestrator(self)
         self.action_runtime = ActionRuntime(self)
         self.side_effects = DecisionSideEffects(node=self)
@@ -124,6 +139,7 @@ class DecisionNode(Node):
         call_with_callback_group(self.create_subscription, SystemStatus, '/robot/system_status', self.on_system_status, qos_for('telemetry'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, '/robot/navigation/status', self.on_navigation_status, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, '/robot/runtime/supervision', self.on_runtime_supervision, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
+        call_with_callback_group(self.create_subscription, String, '/robot/runtime/orchestration', self.on_runtime_orchestration, qos_for('status_summary'), callback_group=self.callback_groups.telemetry)
         call_with_callback_group(self.create_subscription, String, RUNTIME_PARAM_TOPIC, self.on_runtime_params, qos_for('status_summary'), callback_group=self.callback_groups.control)
 
         call_with_callback_group(self.create_service, SetMode, '/robot/set_mode', self.handle_set_mode, callback_group=self.callback_groups.control)
@@ -150,6 +166,9 @@ class DecisionNode(Node):
     def _runtime_adapter(self) -> RuntimeParamAdapter:
         return resolve_runtime_adapter(self, DecisionNode)
 
+    def _runtime_orchestration(self) -> RuntimeOrchestrationController:
+        return resolve_runtime_orchestration(self, DecisionNode)
+
     def _app_service(self) -> DecisionAppService | None:
         return resolve_app_service(self)
 
@@ -170,6 +189,33 @@ class DecisionNode(Node):
 
     def _runtime_param_value(self, key: str, default: float) -> float:
         return DecisionNode._runtime_adapter(self).runtime_param_value(key, default)
+
+    def resolve_patrol_mission(self, *, mission_id: str = '', route_name: str = '') -> MissionCatalogEntry:
+        """Resolve one patrol mission request against the single-robot catalog.
+
+        Args:
+            mission_id: Optional explicit mission identifier from the product API.
+            route_name: Optional route override for the first route stage.
+
+        Returns:
+            Resolved catalog entry used for the next PATROL transition.
+
+        Raises:
+            ValueError: If the mission identifier is unsupported.
+        """
+        resolved = self.mission_catalog.resolve(mission_id or '', route_name=route_name or '')
+        self.active_mission_entry = resolved
+        with self.state_guard():
+            self.context.active_mission_id = resolved.mission_id
+            self.context.active_task_profile = resolved.task_profile
+            self.context.planned_route_name = resolved.route_name
+            self.context.task_stage_count = len(resolved.stages)
+            self.context.current_task_stage_index = 0
+            self.context.task_graph = [stage.to_dict() for stage in resolved.stages]
+            self.context.current_task_stage_id = resolved.stages[0].stage_id if resolved.stages else ''
+            self.context.current_task_stage_title = resolved.stages[0].title if resolved.stages else ''
+        return resolved
+
 
     def _estop_active(self) -> bool:
         return DecisionNode._mode_guard(self).estop_active()
@@ -304,8 +350,8 @@ class DecisionNode(Node):
             self.context.active_action_phase = 'accepted'
             self.context.active_action_message = reason
             self.context.active_action_progress = 0.0
-            self.context.navigation_state = 'route_requested'
-            self.context.navigation_route_name = str(self.get_parameter('default_patrol_route').value or 'default')
+            self.context.navigation_state = 'idle'
+            self.context.navigation_route_name = ''
             self.context.navigation_goal_id = ''
             self.context.navigation_goal_label = ''
             self.context.navigation_completed_goals = 0
@@ -313,7 +359,19 @@ class DecisionNode(Node):
             self.context.navigation_progress = 0.0
             self.context.navigation_reason = reason
             self.context.navigation_cmd_source = 'navigation'
-            self.context.navigation_total_goals = 0
+            self.context.current_task_stage_index = 0
+            if self.context.task_graph:
+                stage = self.context.task_graph[0]
+                stage_result = self.mission_orchestrator.start_stage_locked(stage, current_stage_completed=True)
+                if stage_result.status == 'started':
+                    self.context.navigation_route_name = stage_result.navigation_route_name or self.context.planned_route_name or str(self.get_parameter('default_patrol_route').value or 'default')
+                    self.context.navigation_reason = stage_result.reason or reason
+                elif stage_result.status == 'completed':
+                    self.context.navigation_reason = stage_result.reason or reason
+                else:
+                    self.context.navigation_reason = stage_result.reason or 'stage_start_failed'
+                    self.context.active_action_phase = 'aborted'
+                    self.context.active_action_message = self.context.navigation_reason
         elif new_mode == MODE_TRACK:
             self.context.active_action_name = 'track_target'
             self.context.active_action_phase = 'accepted'
@@ -452,6 +510,13 @@ class DecisionNode(Node):
         if service is None:
             return
         service.on_runtime_supervision(msg)
+
+    def on_runtime_orchestration(self, msg: String) -> None:
+        """Forward one system-level runtime orchestration report into the decision app service."""
+        service = DecisionNode._app_service(self)
+        if service is None:
+            return
+        service.on_runtime_orchestration(msg)
 
     def tick_tasks(self) -> None:
         service = DecisionNode._app_service(self)

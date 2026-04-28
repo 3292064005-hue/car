@@ -10,6 +10,7 @@ capabilities, runtime parameters, command policy, and envelope validation.
 from robot_contracts.capabilities import (
     BRIDGE_CAPABILITIES,
     COMMAND_ACK_STATUSES,
+    COMMAND_LIFECYCLE_PHASES,
     COMMAND_LIFECYCLE_STATUSES,
     COMMAND_TYPES,
     COMPATIBILITY_ACK_STATUS_BY_LIFECYCLE,
@@ -17,6 +18,7 @@ from robot_contracts.capabilities import (
     TERMINAL_COMMAND_ACK_STATUSES,
     TERMINAL_COMMAND_LIFECYCLE_STATUSES,
     TRANSPORT_SUMMARY_KEYS,
+    command_lifecycle_phase_for_status,
     compatibility_ack_status,
     supported_capabilities,
 )
@@ -57,6 +59,24 @@ from robot_contracts.envelope_contract import (
     now_iso,
     validate_envelope_dict,
     validate_outbound_command_type,
+)
+from robot_contracts.report_surface_registry import (
+    report_surface_entries,
+    report_surface_kind_list,
+    report_surface_registry_payload,
+    validate_report_surface_registry,
+)
+from robot_contracts.command_route_registry import (
+    command_route_registry_payload,
+    validate_command_route_registry,
+)
+from robot_contracts.surface_registry import (
+    surface_registry_payload,
+    validate_surface_registry,
+)
+from robot_contracts.runtime_orchestration_registry import (
+    runtime_orchestration_registry_payload,
+    validate_runtime_orchestration_registry,
 )
 from robot_contracts.runtime_parameters import (
     DEFAULT_RUNTIME_PARAM_CONSUMERS,
@@ -103,6 +123,7 @@ from robot_contracts.runtime_parameters import (
 __all__ = [
     'BRIDGE_CAPABILITIES',
     'COMMAND_ACK_STATUSES',
+    'COMMAND_LIFECYCLE_PHASES',
     'COMMAND_LIFECYCLE_STATUSES',
     'COMMAND_PERMISSION_MATRIX',
     'COMMAND_TARGET_MODE',
@@ -131,6 +152,16 @@ __all__ = [
     'RUNTIME_PARAM_ACK_MODE_BEST_EFFORT',
     'RUNTIME_PARAM_PROFILES',
     'RUNTIME_PARAM_SCHEMA',
+    'report_surface_entries',
+    'report_surface_kind_list',
+    'report_surface_registry_payload',
+    'validate_report_surface_registry',
+    'command_route_registry_payload',
+    'validate_command_route_registry',
+    'surface_registry_payload',
+    'validate_surface_registry',
+    'runtime_orchestration_registry_payload',
+    'validate_runtime_orchestration_registry',
     'TRANSACTION_STATE_APPLIED',
     'TRANSACTION_STATE_FAILED',
     'TRANSACTION_STATE_PENDING',
@@ -149,6 +180,7 @@ __all__ = [
     'WEB_SCHEMA_VERSION',
     'BridgeEnvelope',
     'allowed_target_modes',
+    'command_lifecycle_phase_for_status',
     'compatibility_ack_status',
     'apply_runtime_param_patch',
     'apply_runtime_param_patch_detailed',

@@ -1,7 +1,7 @@
-#include "chassis_runtime.h"
-chassis_runtime_state_t host_harness_config_apply(void);
+#include "board_runtime_boundary.h"
+#include "host_harness_entry.h"
+
 int main(void) {
-    chassis_runtime_state_t state = host_harness_config_apply();
-    chassis_runtime_print(state);
-    return 0;
+    chassis_print_runtime_boundary(chassis_board_runtime_boundary());
+    return chassis_host_harness_main();
 }

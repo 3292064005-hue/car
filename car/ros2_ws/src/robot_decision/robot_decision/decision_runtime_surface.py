@@ -14,6 +14,7 @@ from robot_decision.decision_side_effects import DecisionSideEffects
 from robot_decision.decision_state_controller import DecisionStateController
 from robot_decision.mode_guard import ModeGuard
 from robot_decision.runtime_param_adapter import RuntimeParamAdapter
+from robot_decision.runtime_orchestration_controller import RuntimeOrchestrationController
 
 TState = TypeVar('TState')
 
@@ -95,4 +96,14 @@ def runtime_adapter(node: object, strict_runtime_type: type[object]) -> RuntimeP
         'runtime_adapter',
         RuntimeParamAdapter,
         compatibility_factory=lambda runtime: RuntimeParamAdapter(runtime),
+    )
+
+
+def runtime_orchestration(node: object, strict_runtime_type: type[object]) -> RuntimeOrchestrationController:
+    return resolve_component(
+        node,
+        strict_runtime_type,
+        'runtime_orchestration',
+        RuntimeOrchestrationController,
+        compatibility_factory=lambda runtime: RuntimeOrchestrationController(runtime),
     )

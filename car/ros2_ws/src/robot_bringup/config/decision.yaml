@@ -12,3 +12,4 @@ robot_decision:
     decision_intent_queue_max: 128
     decision_intent_batch_max: 32
     decision_intent_sync_timeout_sec: 0.25
+    mission_catalog_path: ''

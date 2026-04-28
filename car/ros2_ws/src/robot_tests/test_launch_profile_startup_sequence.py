@@ -26,6 +26,8 @@ def test_launch_profile_runtime_supervision_model_separates_startup_and_runtime_
     assert supervision['bondSupervisionPresent'] is True
     assert supervision['bondSupervisionType'] == 'bondpy_supervision'
     assert supervision['runtimeSupervisionTopic'] == '/robot/runtime/supervision'
+    assert supervision['runtimeOrchestrationTopic'] == '/robot/runtime/orchestration'
+    assert supervision['runtimeOrchestrationReadyTopic'] == '/robot/runtime/orchestration/ready'
     assert supervision['runtimeLifecycleSurface'] == '/robot/lifecycle_manager/status.lifecycleManager'
     assert supervision['runtimeBondSurface'] == '/robot/lifecycle_manager/status.bondSupervision'
     assert supervision['runtimeRecoveryPlanSurface'] == '/robot/lifecycle_manager/status.recoveryPlan'
@@ -39,4 +41,6 @@ def test_minimal_profile_runtime_supervision_model_is_honest_about_disabled_moni
     assert supervision['bondSupervisionPresent'] is True
     assert supervision['supervisionMode'] == 'startup_barrier_plus_ros_lifecycle_manager_without_monitor'
     assert supervision['runtimeSupervisionTopic'] is None
+    assert supervision['runtimeOrchestrationTopic'] is None
+    assert supervision['runtimeOrchestrationReadyTopic'] is None
     assert supervision['recoveryMode'] == 'ros_lifecycle_manager_safe_shutdown_and_manual_reactivate'

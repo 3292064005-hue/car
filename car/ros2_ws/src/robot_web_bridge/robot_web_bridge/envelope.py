@@ -29,6 +29,7 @@ class EnvelopeFactory:
         detail: str = '',
         trace_id: str | None = None,
         lifecycle_status: str | None = None,
+        lifecycle_phase: str | None = None,
     ) -> dict[str, Any]:
         return self.event(
             'command_ack',
@@ -39,6 +40,7 @@ class EnvelopeFactory:
                 detail=detail,
                 trace_id=trace_id or '',
                 lifecycle_status=lifecycle_status or '',
+                lifecycle_phase=lifecycle_phase or '',
             ).to_payload(),
             trace_id=trace_id,
         )

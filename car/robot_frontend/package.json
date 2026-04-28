@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "node ./scripts/run-local-tool.mjs vite",
-    "generate:contract": "python3 ../scripts/generate_frontend_contract_artifacts.py && python3 ../scripts/generate_governance_artifacts.py",
+    "generate:contract": "node ./scripts/run-python.mjs ../scripts/generate_frontend_contract_artifacts.py && node ./scripts/run-python.mjs ../scripts/generate_governance_artifacts.py",
     "typecheck": "npm run generate:contract && node ./scripts/run-local-tool.mjs tsc --noEmit",
     "test": "npm run typecheck",
     "build": "npm run generate:contract && node ./scripts/run-local-tool.mjs tsc --noEmit && node ./scripts/run-local-tool.mjs vite build",

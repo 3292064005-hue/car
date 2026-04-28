@@ -230,3 +230,35 @@ def test_runtime_supervision_fault_forces_safe_stop(monkeypatch) -> None:
     assert node.current_mode == MODE_SAFE_STOP
     assert node.context.runtime_supervision_state == 'unavailable'
     assert node.event_pub.messages
+
+
+def test_runtime_supervision_missing_required_orchestration_fields_forces_safe_stop(monkeypatch) -> None:
+    monkeypatch.setattr('robot_decision.decision_projection.command_capability_snapshot', lambda ctx: {'allowedTargetModes': [], 'modeReasons': {}, 'commandPermissions': {}})
+    node = _Node()
+    node.current_mode = 'MANUAL'
+    service = _build_service(node)
+    service.shutdown()
+    msg = String()
+    msg.data = '{"state":"ready","reasons":["all_core_components_fresh"],"components":{},"startupBarrierReady":true,"readiness":"ready"}'
+    service.on_runtime_supervision(msg)
+    assert node.current_mode == MODE_SAFE_STOP
+    assert node.context.runtime_orchestration_state == 'recovering'
+    assert 'recovery_plan' in node.context.runtime_orchestration_required_missing
+    assert node.context.runtime_orchestration_reason.startswith('runtime_orchestration_missing_fields:')
+    assert node.event_pub.messages
+
+
+def test_runtime_orchestration_manager_payload_forces_safe_stop(monkeypatch) -> None:
+    monkeypatch.setattr('robot_decision.decision_projection.command_capability_snapshot', lambda ctx: {'allowedTargetModes': [], 'modeReasons': {}, 'commandPermissions': {}})
+    node = _Node()
+    node.current_mode = 'TRACK'
+    service = _build_service(node)
+    service.shutdown()
+    msg = String()
+    msg.data = '{"state":"recovering","reason":"runtime_orchestration_missing_fields:recovery_plan","components":{},"requiredMissing":["recovery_plan"]}'
+    service.on_runtime_orchestration(msg)
+    assert node.current_mode == MODE_SAFE_STOP
+    assert node.context.runtime_orchestration_state == 'recovering'
+    assert node.context.runtime_orchestration_reason == 'runtime_orchestration_missing_fields:recovery_plan'
+    assert node.context.runtime_orchestration_required_missing == ['recovery_plan']
+    assert node.event_pub.messages

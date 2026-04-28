@@ -5,6 +5,7 @@ def test_monitor_yaml_declares_voice_ingress_health_topic() -> None:
     root = Path(__file__).resolve().parents[3]
     source = (root / 'ros2_ws' / 'src' / 'robot_bringup' / 'config' / 'monitor.yaml').read_text(encoding='utf-8')
     assert 'voice_ingress_health_topic:' in source
+    assert 'system_replay_auto_export:' in source
 
 
 def test_runtime_surface_contract_marks_frontend_session_pre_bootstrap() -> None:

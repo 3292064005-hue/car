@@ -116,14 +116,15 @@ class LaunchProfile:
 
         Returns:
             ``host_harness_only`` when the launch profile does not target a real
-            board endpoint; otherwise ``ubuntu_runtime_plus_external_board`` to
-            make it explicit that board validation remains outside this repo's
-            Ubuntu-side launch gate.
+            board endpoint; otherwise ``ubuntu_runtime_plus_board_boundary_contract``
+            to make it explicit that the real-robot profile targets the ROS-side
+            board-boundary contract. Board-execution claims still require
+            ``verified_board_driver`` evidence.
 
         Raises:
             None.
         """
-        return 'host_harness_only' if self.deployment_tier() == 'host_harness' else 'ubuntu_runtime_plus_external_board'
+        return 'host_harness_only' if self.deployment_tier() == 'host_harness' else 'ubuntu_runtime_plus_board_boundary_contract'
 
     def operational_class(self) -> str:
         if self.use_mock_robot:
@@ -171,6 +172,7 @@ class LaunchProfile:
         ]
         if runtime_supervisor_present:
             notes.append('runtime supervisor publishes /robot/runtime/supervision and embeds authoritative lifecycleManager / bondSupervision / recoveryPlan sections from the ROS lifecycle manager status topic')
+            notes.append('runtime orchestration manager publishes /robot/runtime/orchestration and /robot/runtime/orchestration/ready so startup, pause, recovery, degraded, and shutdown phases share one bringup-level state machine')
         else:
             notes.append('runtime supervision topic is absent when the monitor is disabled; lifecycle manager and bond supervision remain available directly on /robot/lifecycle_manager/status')
         return {
@@ -189,6 +191,8 @@ class LaunchProfile:
             'bondSupervisionType': 'bondpy_supervision',
             'recoveryMode': 'ros_lifecycle_manager_safe_shutdown_and_manual_reactivate',
             'runtimeSupervisionTopic': '/robot/runtime/supervision' if runtime_supervisor_present else None,
+            'runtimeOrchestrationTopic': '/robot/runtime/orchestration' if runtime_supervisor_present else None,
+            'runtimeOrchestrationReadyTopic': '/robot/runtime/orchestration/ready' if runtime_supervisor_present else None,
             'runtimeLifecycleSurface': '/robot/lifecycle_manager/status.lifecycleManager',
             'runtimeBondSurface': '/robot/lifecycle_manager/status.bondSupervision',
             'runtimeRecoveryPlanSurface': '/robot/lifecycle_manager/status.recoveryPlan',

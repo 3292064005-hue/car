@@ -1,0 +1,769 @@
+{
+  "contractVersion": "1.0.0",
+  "protocolFamily": "inspection_robot.operator_api.v1",
+  "transportContract": {
+    "protocolVersion": "4.1.0",
+    "schemaVersion": "2026-03-31"
+  },
+  "deploymentModel": "single_robot_only",
+  "authoritativeWriteSurface": "frontend_api_facade",
+  "readonlyObserverSurface": "bridge_observer_surface",
+  "apiPrefix": "/api/v1",
+  "httpEndpoints": {
+    "health": "/api/v1/health",
+    "state": "/api/v1/state",
+    "runtime": "/api/v1/runtime",
+    "logs": "/api/v1/logs",
+    "commands": "/api/v1/commands",
+    "productInterface": "/api/v1/product-interface",
+    "missions": "/api/v1/missions"
+  },
+  "surfaceRegistry": {
+    "bridge_observer_surface": {
+      "surfaceId": "bridge_observer_surface",
+      "surfaceLayers": [
+        "live_state_projection",
+        "observability_report"
+      ],
+      "authorityModel": "observer_only_runtime_projection",
+      "defaultTransport": "ws://<host>:9001/ws",
+      "writeEnabled": false,
+      "machineGateAllowed": false,
+      "truthSourcePaths": [
+        "docs/architecture.md",
+        "docs/protocols/bridge-contract.md",
+        "ros2_ws/src/robot_web_bridge/robot_web_bridge/web_bridge_node.py",
+        "robot_frontend/src/bridge/policyKernel.ts"
+      ],
+      "notes": [
+        "9001 bridge observer surface must hard-reject writes.",
+        "Reports on this surface are human-facing observability unless separately promoted by governance."
+      ]
+    },
+    "debug_observability_surface": {
+      "surfaceId": "debug_observability_surface",
+      "surfaceLayers": [
+        "live_state_projection",
+        "observability_report"
+      ],
+      "authorityModel": "localhost_only_readonly_proxy_runtime",
+      "defaultTransport": "rosbridge-compatible readonly websocket",
+      "writeEnabled": false,
+      "machineGateAllowed": false,
+      "truthSourcePaths": [
+        "ros2_ws/src/robot_web_bridge/robot_web_bridge/standard_observability_contract.py",
+        "ros2_ws/src/robot_web_bridge/robot_web_bridge/standard_observability_bridge_runtime.py",
+        "docs/governance/repository-boundaries.md"
+      ],
+      "notes": [
+        "Readonly debug bridge is localhost-scoped and intentionally does not expose operator command ingress."
+      ]
+    },
+    "frontend_api_facade": {
+      "surfaceId": "frontend_api_facade",
+      "surfaceLayers": [
+        "command_control",
+        "live_state_projection",
+        "observability_report"
+      ],
+      "authorityModel": "authoritative_write_via_api_server_session_policy",
+      "defaultTransport": "ws://<host>:9100/ws and /api/v1/*",
+      "writeEnabled": true,
+      "machineGateAllowed": false,
+      "truthSourcePaths": [
+        "docs/architecture.md",
+        "docs/protocols/bridge-contract.md",
+        "ros2_ws/src/robot_api_server/robot_api_server/proxy_server.py",
+        "robot_frontend/src/bridge/policyKernel.ts"
+      ],
+      "notes": [
+        "9100 API facade is the only operator-authoritative write surface.",
+        "This surface may mirror live state and reports but write semantics remain authoritative-only."
+      ]
+    },
+    "release_reports": {
+      "surfaceId": "release_reports",
+      "surfaceLayers": [
+        "replay_export"
+      ],
+      "authorityModel": "offline_release_evidence_bundle",
+      "defaultTransport": "json/mcap/zip artifacts",
+      "writeEnabled": false,
+      "machineGateAllowed": true,
+      "truthSourcePaths": [
+        "docs/governance/replay-evidence.md",
+        "scripts/build_system_replay_bundle.py",
+        "scripts/render_system_replay_report.py"
+      ],
+      "notes": [
+        "Release evidence is offline and must not be conflated with online command channels."
+      ]
+    }
+  },
+  "commandRouteRegistry": {
+    "apply_param_draft": {
+      "commandType": "apply_param_draft",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_apply_param_draft",
+      "targetNodes": [
+        "runtime_param_coordinator",
+        "robot_control",
+        "robot_decision",
+        "robot_monitor"
+      ],
+      "timeoutBudgetMs": 6000,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "empty_runtime_param_patch"
+      ],
+      "rollbackPaths": [
+        "apply_param_profile:last_known_good"
+      ],
+      "allowedModes": [
+        "IDLE",
+        "MANUAL",
+        "PATROL",
+        "TRACK"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "apply_param_profile": {
+      "commandType": "apply_param_profile",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_apply_param_profile",
+      "targetNodes": [
+        "runtime_param_coordinator",
+        "robot_control",
+        "robot_decision",
+        "robot_monitor"
+      ],
+      "timeoutBudgetMs": 6000,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "unknown_runtime_profile"
+      ],
+      "rollbackPaths": [
+        "apply_param_profile:last_known_good"
+      ],
+      "allowedModes": [
+        "IDLE",
+        "MANUAL"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "estop": {
+      "commandType": "estop",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_estop",
+      "targetNodes": [
+        "robot_control",
+        "robot_decision"
+      ],
+      "timeoutBudgetMs": 1000,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface"
+      ],
+      "rollbackPaths": [
+        "resume_from_safe_stop",
+        "reset_fault"
+      ],
+      "allowedModes": [
+        "IDLE",
+        "MANUAL",
+        "PATROL",
+        "TRACK",
+        "SAFE_STOP",
+        "FAULT",
+        "BOOT"
+      ],
+      "targetMode": "SAFE_STOP",
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": [
+        "Emergency stop is intentionally permissive in mode coverage but still requires authoritative write access."
+      ]
+    },
+    "pause_patrol": {
+      "commandType": "pause_patrol",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_pause_patrol",
+      "targetNodes": [
+        "robot_decision",
+        "robot_navigation"
+      ],
+      "timeoutBudgetMs": 3000,
+      "fallbackPaths": [
+        "cancel_action_then_set_mode_idle"
+      ],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "mode_guard_rejected"
+      ],
+      "rollbackPaths": [
+        "stop_patrol",
+        "set_mode:IDLE"
+      ],
+      "allowedModes": [
+        "PATROL",
+        "TRACK"
+      ],
+      "targetMode": "IDLE",
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "reset_fault": {
+      "commandType": "reset_fault",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_reset_fault",
+      "targetNodes": [
+        "robot_decision",
+        "robot_control"
+      ],
+      "timeoutBudgetMs": 3000,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "fault_not_resettable"
+      ],
+      "rollbackPaths": [
+        "estop"
+      ],
+      "allowedModes": [
+        "FAULT",
+        "SAFE_STOP"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "resume_from_safe_stop": {
+      "commandType": "resume_from_safe_stop",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_resume_from_safe_stop",
+      "targetNodes": [
+        "robot_decision",
+        "robot_control"
+      ],
+      "timeoutBudgetMs": 2500,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "safe_stop_not_recoverable"
+      ],
+      "rollbackPaths": [
+        "estop",
+        "set_mode:SAFE_STOP"
+      ],
+      "allowedModes": [
+        "SAFE_STOP"
+      ],
+      "targetMode": "IDLE",
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "save_snapshot": {
+      "commandType": "save_snapshot",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_save_snapshot",
+      "targetNodes": [
+        "robot_vision"
+      ],
+      "timeoutBudgetMs": 8000,
+      "fallbackPaths": [
+        "action:/robot/actions/save_snapshot",
+        "service:/robot/save_snapshot"
+      ],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface"
+      ],
+      "rollbackPaths": [
+        "retry_snapshot_capture"
+      ],
+      "allowedModes": [
+        "IDLE",
+        "MANUAL",
+        "PATROL",
+        "TRACK",
+        "SAFE_STOP",
+        "FAULT"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": [
+        "Action route is preferred; service fallback remains for compatibility."
+      ]
+    },
+    "set_mode": {
+      "commandType": "set_mode",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_set_mode",
+      "targetNodes": [
+        "robot_decision",
+        "robot_control"
+      ],
+      "timeoutBudgetMs": 3000,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "mode_transition_guard_rejected"
+      ],
+      "rollbackPaths": [
+        "set_mode:IDLE",
+        "estop"
+      ],
+      "allowedModes": [
+        "IDLE",
+        "MANUAL",
+        "PATROL",
+        "TRACK",
+        "SAFE_STOP",
+        "FAULT"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "speak_fixed_text": {
+      "commandType": "speak_fixed_text",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_speak_fixed_text",
+      "targetNodes": [
+        "robot_voice"
+      ],
+      "timeoutBudgetMs": 4000,
+      "fallbackPaths": [
+        "topic:/robot/speak_req"
+      ],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "empty_speak_text",
+        "invalid_speak_priority"
+      ],
+      "rollbackPaths": [
+        "disable_voice_ingress_route"
+      ],
+      "allowedModes": [
+        "BOOT",
+        "IDLE",
+        "MANUAL",
+        "PATROL",
+        "TRACK",
+        "SAFE_STOP",
+        "FAULT"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": [
+        "Topic route proves publication into robot_voice only; physical speaker output remains target acceptance evidence."
+      ]
+    },
+    "start_patrol": {
+      "commandType": "start_patrol",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_start_patrol",
+      "targetNodes": [
+        "robot_decision",
+        "robot_navigation"
+      ],
+      "timeoutBudgetMs": 4000,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "navigation_lane_unavailable",
+        "mode_transition_guard_rejected"
+      ],
+      "rollbackPaths": [
+        "pause_patrol",
+        "stop_patrol",
+        "switch_provider_to_simple_nav_provider"
+      ],
+      "allowedModes": [
+        "IDLE"
+      ],
+      "targetMode": "PATROL",
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "stop_now": {
+      "commandType": "stop_now",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_stop_now",
+      "targetNodes": [
+        "robot_control"
+      ],
+      "timeoutBudgetMs": 800,
+      "fallbackPaths": [],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface"
+      ],
+      "rollbackPaths": [
+        "estop"
+      ],
+      "allowedModes": [
+        "MANUAL",
+        "PATROL",
+        "TRACK",
+        "SAFE_STOP",
+        "FAULT",
+        "IDLE"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "stop_patrol": {
+      "commandType": "stop_patrol",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_stop_patrol",
+      "targetNodes": [
+        "robot_decision",
+        "robot_navigation"
+      ],
+      "timeoutBudgetMs": 3000,
+      "fallbackPaths": [
+        "cancel_action_then_set_mode_idle"
+      ],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "mode_guard_rejected"
+      ],
+      "rollbackPaths": [
+        "set_mode:IDLE",
+        "switch_provider_to_simple_nav_provider"
+      ],
+      "allowedModes": [
+        "PATROL",
+        "TRACK",
+        "MANUAL",
+        "SAFE_STOP"
+      ],
+      "targetMode": "IDLE",
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": []
+    },
+    "teleop_cmd": {
+      "commandType": "teleop_cmd",
+      "entrySurfaces": [
+        "frontend_api_facade"
+      ],
+      "sessionPolicy": "robot_contracts.command_policy:resolve_session_policy",
+      "dispatchTransport": "robot_api_server -> internal_command_socket -> robot_web_bridge",
+      "bridgeHandler": "handle_teleop",
+      "targetNodes": [
+        "robot_control",
+        "robot_bridge"
+      ],
+      "timeoutBudgetMs": 250,
+      "fallbackPaths": [
+        "latest_only_supersession"
+      ],
+      "denyConditions": [
+        "readonly_session",
+        "observer_surface",
+        "mode_not_manual"
+      ],
+      "rollbackPaths": [
+        "stop_now",
+        "estop",
+        "disable_operator_session"
+      ],
+      "allowedModes": [
+        "MANUAL"
+      ],
+      "targetMode": null,
+      "terminalLifecycleStatuses": [
+        "applied",
+        "completed",
+        "rejected",
+        "denied",
+        "timeout",
+        "cancelled"
+      ],
+      "notes": [
+        "latest-only queue replacement is authoritative for teleop_cmd."
+      ]
+    }
+  },
+  "missionCatalog": {
+    "schemaVersion": "1.1.0",
+    "deploymentModel": "single_robot_only",
+    "defaultMissionId": "default_patrol",
+    "catalogSource": "yaml_config",
+    "catalogPath": "ros2_ws/src/robot_bringup/config/mission_catalog.yaml",
+    "missions": {
+      "default_patrol": {
+        "missionId": "default_patrol",
+        "title": "默认巡检",
+        "routeName": "default",
+        "taskProfile": "route_patrol",
+        "autoTrack": true,
+        "resumePolicy": "restart_route",
+        "stages": [
+          {
+            "stageId": "route_execution",
+            "title": "路径执行",
+            "kind": "route",
+            "routeName": "default",
+            "expectedGoalCount": 0,
+            "successMessage": "route_complete",
+            "timeoutSec": 300.0,
+            "supported": true,
+            "owner": "robot_navigation",
+            "startCondition": "mission_entered_or_previous_stage_completed",
+            "completionCondition": "navigation_state=route_completed",
+            "reason": null
+          },
+          {
+            "stageId": "inspection_verification",
+            "title": "巡检收尾",
+            "kind": "verification",
+            "routeName": null,
+            "expectedGoalCount": 0,
+            "successMessage": "mission_complete",
+            "timeoutSec": 10.0,
+            "verificationRules": {
+              "requiredNavigationState": "route_completed",
+              "minimumCompletedGoals": 1,
+              "requirePositiveProgress": true,
+              "requireRuntimeReady": true
+            },
+            "supported": true,
+            "owner": "robot_decision",
+            "startCondition": "previous_stage_completed",
+            "completionCondition": "navigation_completion_and_runtime_health_verified",
+            "reason": null
+          }
+        ],
+        "operatorNotes": [
+          "单机主线任务，进入 PATROL 后由 navigation 执行 route。",
+          "可在产品接口中显式选择 missionId，但仍必须通过 9100 API facade 下发。"
+        ]
+      },
+      "dock_then_patrol": {
+        "missionId": "dock_then_patrol",
+        "title": "回桩后巡检",
+        "routeName": "docking_loop",
+        "taskProfile": "dock_then_patrol",
+        "autoTrack": false,
+        "resumePolicy": "restart_stage",
+        "stages": [
+          {
+            "stageId": "docking_route",
+            "title": "回桩路径",
+            "kind": "route",
+            "routeName": "docking_loop",
+            "expectedGoalCount": 0,
+            "successMessage": "docking_complete",
+            "timeoutSec": 240.0,
+            "supported": true,
+            "owner": "robot_navigation",
+            "startCondition": "mission_entered_or_previous_stage_completed",
+            "completionCondition": "navigation_state=route_completed",
+            "reason": null
+          },
+          {
+            "stageId": "patrol_route",
+            "title": "巡检路径",
+            "kind": "route",
+            "routeName": "default",
+            "expectedGoalCount": 0,
+            "successMessage": "patrol_complete",
+            "timeoutSec": 300.0,
+            "supported": true,
+            "owner": "robot_navigation",
+            "startCondition": "mission_entered_or_previous_stage_completed",
+            "completionCondition": "navigation_state=route_completed",
+            "reason": null
+          }
+        ],
+        "operatorNotes": [
+          "复杂任务仍是单机内编排，不引入 fleet。"
+        ]
+      }
+    }
+  },
+  "singleRobotPolicy": {
+    "fleetAdapterBoundary": {
+      "contractVersion": "1.1.0",
+      "status": "disabled_by_default",
+      "enabled": false,
+      "requestedEnabled": false,
+      "activationDecision": "disabled",
+      "policyReason": "disabled_by_default",
+      "adapterFamily": "disabled",
+      "singleRobotAuthority": true,
+      "singleRobotAuthorityOwners": [
+        "robot_decision",
+        "robot_navigation"
+      ],
+      "taskIngressTopic": "/robot/fleet_adapter/tasks",
+      "statusTopic": "/robot/fleet_adapter/status",
+      "acceptedTaskKinds": [
+        "patrol_route"
+      ],
+      "authorityBoundary": "decision_runtime_authoritative",
+      "notes": [
+        "当前产品发布面固定为单机任务编排。",
+        "任何外部 scheduler/fleet manager 都不得在当前版本激活运行时接入。",
+        "未来若恢复车队调度，只能通过 fleet adapter boundary 进入 decision task layer。"
+      ]
+    },
+    "multiRobotSchedulingAllowed": false,
+    "externalSchedulersMustUseBoundaryOnly": true
+  },
+  "operatorNotes": [
+    "9100 API facade 是唯一正式产品写入口。",
+    "9001 observer 与标准只读桥只能做观测，不得承载写命令。",
+    "当前产品发布面仅支持单机任务编排；fleet/multi-robot 保持禁用。"
+  ]
+}

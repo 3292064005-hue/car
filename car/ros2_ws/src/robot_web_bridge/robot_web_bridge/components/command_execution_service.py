@@ -88,7 +88,6 @@ class CommandExecutionService:
         self.pending_mode_acks: dict[Any, PendingAck] = {}
         self.pending_reset_acks: dict[Any, PendingAck] = {}
         self.pending_snapshot_acks: dict[Any, PendingAck] = {}
-        self.pending_speak_acks: dict[Any, PendingAck] = {}
         loader = action_loader if action_loader is not None else load_robot_actions
         self._actions = loader()
         self.active_patrol_goal = None
@@ -200,11 +199,6 @@ class CommandExecutionService:
             self._router._record_phase(meta.event_id, meta.command_type, 'timeout', 'timeout', message, trace_id=meta.trace_id)
             self._router._send_ack(meta.event_id, meta.command_type, 'timeout', message, trace_id=meta.trace_id)
             return
-        if entry.kind == 'speak_service':
-            self.pending_speak_acks.pop(entry.future, None)
-            self._router._record_phase(meta.event_id, meta.command_type, 'timeout', 'timeout', message, trace_id=meta.trace_id)
-            self._router._send_ack(meta.event_id, meta.command_type, 'timeout', message, trace_id=meta.trace_id)
-            return
         if entry.kind == 'start_patrol_goal':
             self.patrol_goal_by_command.pop(entry.future, None)
             self._finalize_action(ActionBinding(event_id=meta.event_id, command_type=meta.command_type, requested_mode=meta.requested_mode, trace_id=meta.trace_id, action_name=entry.action_name or 'start_patrol'), lifecycle_status='timeout', message=message, phase='timeout', progress=0.0, extra={'patrolStatus': 'timed_out', 'trackEnabled': False})
@@ -241,21 +235,28 @@ class CommandExecutionService:
         try:
             goal_handle.cancel_goal_async()
         except Exception as exc:
-            self._router._reject(meta.event_id, meta.command_type, f'{message}: {exc}', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, f'{message}: {exc}', trace_id=meta.trace_id, detail='cancel_goal_failed')
             return False
         self._publish_task_feedback(meta, phase='cancelling', message=message, progress=self.node.state.task.get('actionProgress'), extra=extra, lifecycle_status='accepted')
         return True
 
-    def _dispatch_patrol_action(self, meta: ActionBinding, *, operator_id: str, reason: str) -> None:
+    def _dispatch_patrol_action(self, meta: ActionBinding, *, operator_id: str, reason: str, payload: Mapping[str, Any] | None = None) -> None:
         if self.patrol_action_client is None:
-            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/start_patrol action unavailable', trace_id=meta.trace_id)
+            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/start_patrol action unavailable', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         if not self._router._wait_for_action_server(self.patrol_action_client, name='/robot/actions/start_patrol'):
-            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/start_patrol action unavailable', trace_id=meta.trace_id)
+            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/start_patrol action unavailable', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         goal = self._actions['StartPatrol'].Goal()
         goal.requested_by = operator_id
         goal.reason = reason
+        payload = payload or {}
+        if hasattr(goal, 'mission_id'):
+            goal.mission_id = str(payload.get('missionId', '') or payload.get('mission_id', '') or '')
+        if hasattr(goal, 'route_name'):
+            goal.route_name = str(payload.get('routeName', '') or payload.get('route_name', '') or '')
+        if hasattr(goal, 'task_profile'):
+            goal.task_profile = str(payload.get('taskProfile', '') or payload.get('task_profile', '') or '')
         if hasattr(goal, 'trace_id'):
             goal.trace_id = meta.trace_id
         future = self.patrol_action_client.send_goal_async(goal, feedback_callback=self.on_patrol_feedback)
@@ -267,10 +268,10 @@ class CommandExecutionService:
 
     def _dispatch_track_action(self, meta: ActionBinding, *, operator_id: str, reason: str, payload: Mapping[str, Any]) -> None:
         if self.track_action_client is None:
-            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/track_target action unavailable', trace_id=meta.trace_id)
+            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/track_target action unavailable', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         if not self._router._wait_for_action_server(self.track_action_client, name='/robot/actions/track_target'):
-            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/track_target action unavailable', trace_id=meta.trace_id)
+            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/track_target action unavailable', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         goal = self._actions['TrackTarget'].Goal()
         goal.requested_by = operator_id
@@ -281,7 +282,7 @@ class CommandExecutionService:
         try:
             goal.min_confidence = self._router._coerce_float_field(payload, 'minConfidence', 'min_confidence', default=0.0)
         except ValueError as exc:
-            self._router._reject(meta.event_id, meta.command_type, str(exc), trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, str(exc), trace_id=meta.trace_id, detail='invalid_command_payload')
             return
         future = self.track_action_client.send_goal_async(goal, feedback_callback=self.on_track_feedback)
         self.track_goal_by_command[future] = meta
@@ -291,16 +292,22 @@ class CommandExecutionService:
         self._publish_task_feedback(meta, phase='queued', message='track_target action goal queued', progress=0.0, extra={'trackEnabled': False})
 
     def _dispatch_snapshot_action(self, meta: ActionBinding, *, operator_id: str = '', reason: str = '', payload: Mapping[str, Any] | None = None) -> None:
-        del payload
         if self.snapshot_action_client is None:
-            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/save_snapshot action unavailable', trace_id=meta.trace_id)
+            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/save_snapshot action unavailable', trace_id=meta.trace_id, detail='action:/robot/actions/save_snapshot')
             return
         if not self._router._wait_for_action_server(self.snapshot_action_client, name='/robot/actions/save_snapshot'):
-            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/save_snapshot action unavailable', trace_id=meta.trace_id)
+            self._router._deny(meta.event_id, meta.command_type, '/robot/actions/save_snapshot action unavailable', trace_id=meta.trace_id, detail='action:/robot/actions/save_snapshot')
             return
         goal = self._actions['SaveSnapshotTask'].Goal()
         goal.requested_by = operator_id
         goal.reason = reason
+        payload = payload or {}
+        if hasattr(goal, 'mission_id'):
+            goal.mission_id = str(payload.get('missionId', '') or payload.get('mission_id', '') or '')
+        if hasattr(goal, 'route_name'):
+            goal.route_name = str(payload.get('routeName', '') or payload.get('route_name', '') or '')
+        if hasattr(goal, 'task_profile'):
+            goal.task_profile = str(payload.get('taskProfile', '') or payload.get('task_profile', '') or '')
         if hasattr(goal, 'trace_id'):
             goal.trace_id = meta.trace_id
         future = self.snapshot_action_client.send_goal_async(goal, feedback_callback=self.on_snapshot_feedback)
@@ -327,10 +334,10 @@ class CommandExecutionService:
         try:
             goal_handle = future.result()
         except Exception as exc:
-            self._router._reject(meta.event_id, meta.command_type, f'start_patrol action failed: {exc}', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, f'start_patrol action failed: {exc}', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         if not getattr(goal_handle, 'accepted', False):
-            self._router._reject(meta.event_id, meta.command_type, 'start_patrol action rejected', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, 'start_patrol action rejected', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         self.active_patrol_goal = goal_handle
         result_future = goal_handle.get_result_async()
@@ -392,10 +399,10 @@ class CommandExecutionService:
         try:
             goal_handle = future.result()
         except Exception as exc:
-            self._router._reject(meta.event_id, meta.command_type, f'track_target action failed: {exc}', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, f'track_target action failed: {exc}', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         if not getattr(goal_handle, 'accepted', False):
-            self._router._reject(meta.event_id, meta.command_type, 'track_target action rejected', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, 'track_target action rejected', trace_id=meta.trace_id, detail='navigation_lane_unavailable')
             return
         self.active_track_goal = goal_handle
         result_future = goal_handle.get_result_async()
@@ -451,10 +458,10 @@ class CommandExecutionService:
         try:
             goal_handle = future.result()
         except Exception as exc:
-            self._router._reject(meta.event_id, meta.command_type, f'save_snapshot action failed: {exc}', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, f'save_snapshot action failed: {exc}', trace_id=meta.trace_id, detail='action:/robot/actions/save_snapshot')
             return
         if not getattr(goal_handle, 'accepted', False):
-            self._router._reject(meta.event_id, meta.command_type, 'save_snapshot action rejected', trace_id=meta.trace_id)
+            self._router._reject(meta.event_id, meta.command_type, 'save_snapshot action rejected', trace_id=meta.trace_id, detail='action:/robot/actions/save_snapshot')
             return
         self.active_snapshot_goal = goal_handle
         result_future = goal_handle.get_result_async()
@@ -581,19 +588,3 @@ class CommandExecutionService:
             self._router._send_ack(meta.event_id, meta.command_type, 'rejected', message, trace_id=meta.trace_id)
             self._publish_task_feedback(action_meta, phase='aborted', message=message, progress=0.0, lifecycle_status='rejected')
 
-    def on_speak_done(self, future: Any) -> None:
-        self._clear_timeout(future)
-        meta = self.pending_speak_acks.pop(future, None)
-        if meta is None:
-            return
-        try:
-            response = future.result()
-        except Exception as exc:
-            self._router._send_ack(meta.event_id, meta.command_type, 'rejected', f'speak_fixed_text failed: {exc}', trace_id=meta.trace_id)
-            return
-        if bool(getattr(response, 'success', True)):
-            message = str(getattr(response, 'message', 'voice request accepted'))
-            self._router._send_ack(meta.event_id, meta.command_type, 'completed', message, trace_id=meta.trace_id)
-        else:
-            message = str(getattr(response, 'message', 'voice request rejected'))
-            self._router._send_ack(meta.event_id, meta.command_type, 'rejected', message, trace_id=meta.trace_id)

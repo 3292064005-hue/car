@@ -10,7 +10,8 @@ command orchestration.
 import time
 from typing import Any, Mapping
 
-from robot_contracts.bridge_contract import compatibility_ack_status
+from robot_contracts.bridge_contract import command_lifecycle_phase_for_status, compatibility_ack_status
+from robot_contracts.command_route_registry import command_route_denial_detail, command_route_timeout_budget_ms
 
 SERVICE_WAIT_TIMEOUT_SEC = 0.5
 SERVICE_WAIT_RETRIES = 3
@@ -46,6 +47,7 @@ def send_ack(
     *,
     trace_id: str = '',
     detail: str = '',
+    lifecycle_phase: str = '',
 ) -> None:
     """Emit one compatibility-safe command acknowledgement.
 
@@ -67,15 +69,27 @@ def send_ack(
         consumers can observe the exact bridge state transition.
     """
     legacy_status = compatibility_ack_status(lifecycle_status)
+    phase = lifecycle_phase or command_lifecycle_phase_for_status(lifecycle_status)
     audit(router, event_id, command_type, lifecycle_status, message)
-    router.node.send_ack(
-        event_id,
-        legacy_status,
-        message,
-        detail=detail,
-        trace_id=trace_id,
-        lifecycle_status=lifecycle_status,
-    )
+    try:
+        router.node.send_ack(
+            event_id,
+            legacy_status,
+            message,
+            detail=detail,
+            trace_id=trace_id,
+            lifecycle_status=lifecycle_status,
+            lifecycle_phase=phase,
+        )
+    except TypeError:
+        router.node.send_ack(
+            event_id,
+            legacy_status,
+            message,
+            detail=detail,
+            trace_id=trace_id,
+            lifecycle_status=lifecycle_status,
+        )
 
 
 def update_task_state(router: Any, payload: Mapping[str, Any]) -> None:
@@ -87,14 +101,16 @@ def update_task_state(router: Any, payload: Mapping[str, Any]) -> None:
     router.node._sync_snapshot_cache()
 
 
-def deny(router: Any, event_id: str, command_type: str, message: str, *, trace_id: str = '') -> None:
-    record_phase(router, event_id, command_type, 'guard', 'denied', message, trace_id=trace_id)
-    send_ack(router, event_id, command_type, 'denied', message, trace_id=trace_id)
+def deny(router: Any, event_id: str, command_type: str, message: str, *, trace_id: str = '', detail: str = '', source_surface: str = '') -> None:
+    detail_value = detail or command_route_denial_detail(command_type, message, source_surface=source_surface)
+    record_phase(router, event_id, command_type, 'guard', 'denied', message, trace_id=trace_id, extra={'detail': detail_value or None})
+    send_ack(router, event_id, command_type, 'denied', message, trace_id=trace_id, detail=detail_value)
 
 
-def reject(router: Any, event_id: str, command_type: str, message: str, *, trace_id: str = '') -> None:
-    record_phase(router, event_id, command_type, 'execution', 'rejected', message, trace_id=trace_id)
-    send_ack(router, event_id, command_type, 'rejected', message, trace_id=trace_id)
+def reject(router: Any, event_id: str, command_type: str, message: str, *, trace_id: str = '', detail: str = '', source_surface: str = '') -> None:
+    detail_value = detail or command_route_denial_detail(command_type, message, source_surface=source_surface)
+    record_phase(router, event_id, command_type, 'execution', 'rejected', message, trace_id=trace_id, extra={'detail': detail_value or None})
+    send_ack(router, event_id, command_type, 'rejected', message, trace_id=trace_id, detail=detail_value)
 
 
 def wait_for_service(router: Any, client: Any, *, name: str) -> bool:
@@ -126,7 +142,10 @@ def wait_for_action_server(router: Any, client: Any, *, name: str) -> bool:
 
 
 def register_timeout(router: Any, pending_timeout_factory: Any, future: Any, *, meta: Any, kind: str, action_name: str = '') -> None:
-    deadline = router._monotonic() + router._operation_timeout_sec
+    configured_timeout_ms = int(float(getattr(router, '_operation_timeout_sec', 10.0)) * 1000.0)
+    registry_timeout_ms = command_route_timeout_budget_ms(getattr(meta, 'command_type', ''), default_ms=configured_timeout_ms)
+    timeout_ms = min(configured_timeout_ms, registry_timeout_ms) if configured_timeout_ms > 0 else registry_timeout_ms
+    deadline = router._monotonic() + (float(timeout_ms) / 1000.0)
     router._pending_timeouts[id(future)] = pending_timeout_factory(
         future=future,
         meta=meta,

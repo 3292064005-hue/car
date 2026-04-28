@@ -9,7 +9,15 @@ robot_vision:
     color_profile_path: ''
     stable_detection_hits: 2
     stable_detection_misses: 3
+    tracker_max_center_jump: 0.35
+    tracker_max_area_ratio_delta: 1.5
     enable_debug_overlay: false
+    qrcode_cooldown_sec: 2.0
+    # Color target events/snapshots are edge-triggered. These cooldowns only suppress
+    # rapid lost->reacquired chatter for the same label; continuous stable detection does
+    # not re-emit target_detected or take new snapshots.
+    color_detection_cooldown_sec: 1.0
+    color_snapshot_min_interval_sec: 2.0
     capture_process_enabled: true
     capture_ipc_queue_max: 1
     capture_reconnect_backoff_sec: 0.5

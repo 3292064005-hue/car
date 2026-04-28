@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { robotBridge } from '@/bridge/client';
+import { FeatureMaturityPills } from '@/components/FeatureMaturityPills';
 import { SectionCard } from '@/components/SectionCard';
 import { deepCloneParams, safeClipboardWrite, summarizeParamDiff, toJson } from '@/shared/utils';
 import {
@@ -66,7 +67,7 @@ export function ParamPanel() {
   }, [profiles.profiles, profiles.profileScopes]);
 
   return (
-    <SectionCard title="运行参数">
+    <SectionCard title="运行参数" right={<FeatureMaturityPills featureIds={['operator.runtime_param_commit']} />}>
       <div className="diff-box">
         <strong>后端权威参数</strong>
         <p className="muted">这些字段进入 bridge 事务，并等待 control / decision / monitor 等消费者 ACK 后才会从 provisional 变为 committed。</p>

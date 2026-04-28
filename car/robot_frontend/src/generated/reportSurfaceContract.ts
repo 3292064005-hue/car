@@ -1,0 +1,131 @@
+export const REPORT_SURFACE_CONTRACT_AUTHORITY = 'generate_frontend_contract_artifacts' as const;
+        export const REPORT_SURFACE_CONTRACT = {
+  "controlSummary": {
+    "kind": "control_summary",
+    "detailPaths": [
+      "winner",
+      "safetyReason",
+      "powerReason",
+      "selectedAgeSec",
+      "selectedCommand",
+      "arbitration",
+      "rejectedCandidates"
+    ]
+  },
+  "monitorSummary": {
+    "kind": "monitor_summary",
+    "detailPaths": [
+      "health",
+      "readiness",
+      "reason",
+      "mode",
+      "wifiOk",
+      "bridgeOk",
+      "cameraOk",
+      "audioOk",
+      "uartOk",
+      "batteryVoltage",
+      "leftRpm",
+      "rightRpm",
+      "controlSource",
+      "lastQrcode",
+      "lastVoiceCommand",
+      "lastFault",
+      "snapshotCount",
+      "reconnectCount",
+      "protocolErrors",
+      "recentSummary"
+    ]
+  },
+  "monitorDiagnostics": {
+    "kind": "monitor_diagnostics",
+    "detailPaths": [
+      "componentStatusCount",
+      "unhealthyCount",
+      "unhealthyComponents",
+      "systemStatus.name",
+      "systemStatus.level",
+      "systemStatus.message",
+      "runtimeState",
+      "runtimeReasons"
+    ]
+  },
+  "localizationSummary": {
+    "kind": "localization_summary",
+    "detailPaths": [
+      "feedbackAvailable",
+      "stale",
+      "pose.x",
+      "pose.y",
+      "pose.yaw",
+      "robotName",
+      "descriptionLoaded"
+    ]
+  },
+  "hardwareInterfaceSummary": {
+    "kind": "hardware_interface_summary",
+    "detailPaths": [
+      "jointStateAvailable",
+      "batteryStateAvailable",
+      "cmdObserved",
+      "batteryPercent",
+      "batteryVoltage",
+      "missing"
+    ]
+  },
+  "navigationStatus": {
+    "kind": "navigation_status",
+    "detailPaths": [
+      "routeName",
+      "goal",
+      "completedGoals",
+      "totalGoals",
+      "progress",
+      "reason"
+    ]
+  },
+  "voiceIngressHealth": {
+    "kind": "voice_ingress_health",
+    "detailPaths": [
+      "state",
+      "reason",
+      "required",
+      "expectedSourceId",
+      "lastSourceId",
+      "lastCommand",
+      "lastConfidence",
+      "lastIngressAgeSec",
+      "timeoutSec"
+    ]
+  },
+  "navigationPath": {
+    "kind": "navigation_path",
+    "detailPaths": [
+      "poseCount",
+      "hasPath"
+    ]
+  },
+  "runtimeSupervision": {
+    "kind": "runtime_supervision",
+    "detailPaths": [
+      "reasons",
+      "startupBarrierReady",
+      "readiness",
+      "recoveryMode",
+      "lifecycleManager.present",
+      "lifecycleManager.type",
+      "lifecycleManager.state",
+      "lifecycleManager.managedNodes",
+      "lifecycleManager.recentTransitions",
+      "bondSupervision.present",
+      "bondSupervision.type",
+      "bondSupervision.state",
+      "bondSupervision.managedNodes",
+      "recoveryPlan.strategy",
+      "recoveryPlan.reason",
+      "recoveryPlan.targetNodes",
+      "orchestrationComponents"
+    ]
+  }
+} as const;
+        export type GeneratedReportSurfaceContractKey = keyof typeof REPORT_SURFACE_CONTRACT;

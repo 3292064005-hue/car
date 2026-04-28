@@ -22,6 +22,16 @@ class MissionContext:
     active_action_phase: str = 'idle'
     active_action_message: str = ''
     active_action_progress: float = 0.0
+    active_mission_id: str = ''
+    active_task_profile: str = ''
+    planned_route_name: str = ''
+    task_graph: list[dict[str, object]] = field(default_factory=list)
+    task_stage_count: int = 0
+    current_task_stage_index: int = 0
+    current_task_stage_id: str = ''
+    current_task_stage_title: str = ''
+    current_task_stage_timeout_sec: float = 0.0
+    current_task_stage_started_monotonic: float = 0.0
     navigation_state: str = 'idle'
     navigation_route_name: str = ''
     navigation_goal_id: str = ''
@@ -35,4 +45,8 @@ class MissionContext:
     runtime_supervision_state: str = 'booting'
     runtime_supervision_reasons: list[str] = field(default_factory=list)
     runtime_supervision_components: dict[str, object] = field(default_factory=dict)
+    runtime_orchestration_state: str = 'booting'
+    runtime_orchestration_reason: str = ''
+    runtime_orchestration_components: dict[str, object] = field(default_factory=dict)
+    runtime_orchestration_required_missing: list[str] = field(default_factory=list)
     fault_history: list[str] = field(default_factory=list)

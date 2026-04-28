@@ -94,8 +94,8 @@ class _FakeNode:
     def audit_command(self, event_id, command_type, status, message):
         self.audit.append((event_id, command_type, status, message))
 
-    def send_ack(self, event_id, status, message, *, detail='', trace_id='', lifecycle_status=''):
-        self.sent_acks.append((event_id, status, message, detail, trace_id, lifecycle_status))
+    def send_ack(self, event_id, status, message, *, detail='', trace_id='', lifecycle_status='', lifecycle_phase=''):
+        self.sent_acks.append((event_id, status, message, detail, trace_id, lifecycle_status, lifecycle_phase))
 
     def _sync_snapshot_cache(self):
         pass
@@ -124,6 +124,9 @@ class _StartPatrol:
         def __init__(self):
             self.requested_by = ''
             self.reason = ''
+            self.mission_id = ''
+            self.route_name = ''
+            self.task_profile = ''
             self.trace_id = ''
 
 
@@ -217,7 +220,7 @@ def test_patrol_goal_acceptance_updates_ack_and_task(monkeypatch):
     future.result = lambda: _GoalHandle()
     router.on_patrol_goal_response(future)
 
-    assert any(item[0] == 'evt-2' and item[1] == 'ack' and item[5] == 'accepted' for item in node.sent_acks)
+    assert any(item[0] == 'evt-2' and item[1] == 'ack' and item[5] == 'accepted' and item[6] == 'ros_accepted' for item in node.sent_acks)
     assert node.state.task['actionName'] == 'start_patrol'
     assert node.state.task['actionPhase'] == 'accepted'
     assert node.state.task['patrolStatus'] == 'running'
@@ -351,4 +354,89 @@ def test_apply_param_draft_dispatches_one_backend_call(monkeypatch):
     assert len(calls) == 1
     assert calls[0]['command_type'] == 'apply_param_draft'
     assert calls[0]['trace_id'] == 'trace-draft'
-    assert any(item[0] == 'evt-draft' and item[5] == 'accepted' for item in node.sent_acks)
+    assert any(item[0] == 'evt-draft' and item[5] == 'completed' and item[6] == 'business_completed' for item in node.sent_acks)
+
+
+
+def test_start_patrol_goal_propagates_product_mission_payload(monkeypatch):
+    monkeypatch.setattr(command_router_module, 'ActionClient', _FakeActionClient)
+    monkeypatch.setattr(command_router_module, 'load_robot_actions', lambda: {
+        'StartPatrol': _StartPatrol,
+        'TrackTarget': _TrackTarget,
+        'SaveSnapshotTask': _SaveSnapshotTask,
+    })
+    node = _FakeNode()
+    router = CommandRouter(node)
+
+    router.handle({'type': 'start_patrol', 'event_id': 'evt-mission', 'trace_id': 'trace-mission', 'payload': {'missionId': 'dock_then_patrol', 'routeName': 'dock_loop', 'taskProfile': 'dock_patrol'}, 'reason': 'patrol', 'operator_id': 'tester'})
+
+    goal, _feedback_cb = router.patrol_action_client.sent_goals[0]
+    assert goal.mission_id == 'dock_then_patrol'
+    assert goal.route_name == 'dock_loop'
+    assert goal.task_profile == 'dock_patrol'
+    assert goal.trace_id == 'trace-mission'
+
+
+def test_speak_fixed_text_publishes_strict_speak_request_topic(monkeypatch):
+    monkeypatch.setattr(command_router_module, 'load_robot_actions', lambda: {})
+    node = _FakeNode()
+    router = CommandRouter(node)
+
+    router.handle({
+        'type': 'speak_fixed_text',
+        'event_id': 'evt-speak',
+        'payload': {'text': '系统状态正常', 'priority': 3},
+        'reason': 'operator_voice',
+        'operator_id': 'tester',
+        'trace_id': 'trace-speak',
+    })
+
+    assert node.speak_pub.messages
+    msg = node.speak_pub.messages[0]
+    assert msg.text_id == '系统状态正常'
+    assert msg.priority == 3
+    assert msg.requested_by == 'tester'
+    assert msg.trace_id == 'trace-speak'
+    assert node.sent_acks[-1][1] == 'ack'
+    assert node.sent_acks[-1][5] == 'applied'
+
+
+def test_speak_fixed_text_rejects_empty_text_without_publishing(monkeypatch):
+    monkeypatch.setattr(command_router_module, 'load_robot_actions', lambda: {})
+    node = _FakeNode()
+    router = CommandRouter(node)
+
+    router.handle({
+        'type': 'speak_fixed_text',
+        'event_id': 'evt-speak-empty',
+        'payload': {'text': '   '},
+        'reason': 'operator_voice',
+        'operator_id': 'tester',
+    })
+
+    assert node.speak_pub.messages == []
+    assert node.sent_acks[-1][1] == 'rejected'
+    assert node.sent_acks[-1][3] == 'empty_speak_text'
+
+
+def test_save_snapshot_service_fallback_uses_declared_srv_fields(monkeypatch):
+    monkeypatch.setattr(command_router_module, 'load_robot_actions', lambda: {})
+    node = _FakeNode()
+    router = CommandRouter(node)
+
+    router.handle({
+        'type': 'save_snapshot',
+        'event_id': 'evt-snapshot',
+        'payload': {'filename': 'ignored-by-contract.jpg', 'reason': 'manual_capture'},
+        'reason': 'manual_snapshot',
+        'operator_id': 'tester',
+        'trace_id': 'trace-snapshot',
+    })
+
+    assert node.snapshot_client.calls == 1
+    req = node.snapshot_client.requests[0]
+    assert req.reason == 'manual_capture'
+    assert req.trace_id == 'trace-snapshot'
+    assert not hasattr(req, 'filename')
+    assert node.audit[-1][:3] == ('evt-snapshot', 'save_snapshot', 'queued')
+

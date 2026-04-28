@@ -32,6 +32,7 @@ class _DecisionStub:
         self.chassis_state = SimpleNamespace(estop=False, heartbeat_ok=True, comm_ok=True)
         self.last_fault = None
         self._safe_stop_manual_confirmed = False
+        self.context = SimpleNamespace(runtime_orchestration_state='ready', runtime_orchestration_reason='', runtime_orchestration_required_missing=[])
 
     def _link_ready(self) -> bool:
         return bool(self.system_status and self.system_status.wifi_ok and self.system_status.uart_ok)
@@ -79,3 +80,15 @@ def test_command_context_uses_chassis_estop_signal_and_manual_ack_hint() -> None
     assert context.bridge_connected is True
     assert context.estop_active is True
     assert context.safe_stop_requires_manual_ack is True
+
+
+def test_safe_stop_recovery_blocks_when_runtime_orchestration_not_ready() -> None:
+    node = _DecisionStub()
+    node.system_status = SimpleNamespace(wifi_ok=True, uart_ok=True, stale_link=False, low_power_stop=False, low_power_warn=False)
+    node.chassis_state = SimpleNamespace(estop=False, heartbeat_ok=True, comm_ok=True)
+    node.context.runtime_orchestration_state = 'recovering'
+    node.context.runtime_orchestration_reason = 'runtime_orchestration_missing_fields:recovery_plan'
+    node.context.runtime_orchestration_required_missing = ['recovery_plan']
+    recoverable, reason = DecisionNode._safe_stop_recovery_status(node, require_manual_confirm=False)
+    assert recoverable is False
+    assert reason == 'runtime_orchestration_missing_fields:recovery_plan'
